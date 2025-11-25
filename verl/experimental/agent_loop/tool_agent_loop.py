@@ -197,6 +197,7 @@ class ToolAgentLoop(AgentLoopBase):
 
         loop_uuid = uuid4().hex[:8]
         prefix = f"agent_loop/{loop_uuid}"
+
         def loop_snp(name):
             return Snapshot(f"{prefix}/{name}", subsys="agent_loop")
 
@@ -307,6 +308,7 @@ class ToolAgentLoop(AgentLoopBase):
                 image_data=agent_data.image_data,
             )
 
+
         agent_data.assistant_turns += 1
         agent_data.response_ids = output.token_ids
         agent_data.prompt_ids += agent_data.response_ids
@@ -373,31 +375,7 @@ class ToolAgentLoop(AgentLoopBase):
         # Process tool responses and update multi_modal_data
         # Removed: agent_data.new_images_this_turn = []
         for tool_response, tool_reward, _ in responses:
-            # Create message from tool response
-            if tool_response.image or tool_response.video:
-                # Multi-modal content with structured format
-                if not getattr(self.processor, "image_processor", None):
-                    raise ValueError(
-                        "Multimedia data can only be processed by `processor`, but the processor is None. "
-                        "This error is often caused if you are using a LLM model but your tool returns multimodal "
-                        "data. Plase use a vlm as the base model."
-                    )
-                content = []
-                if tool_response.image:
-                    content.append({"type": "image"})
-                if tool_response.video:
-                    content.append({"type": "video"})
-                if tool_response.text:
-                    content.append({"type": "text", "text": tool_response.text})
-                message = {"role": self.tool_response_role, "content": content}
-            else:
-                # Text-only content
-                message = {
-                    "role": self.tool_response_role,
-                    "content": tool_response.text or "",
-                }
-
-            add_messages.append(message)
+            add_messages = [{"role": self.tool_response_role, "content": tool_response.content}]
 
             # Handle image data
             if tool_response.image:
@@ -431,7 +409,16 @@ class ToolAgentLoop(AgentLoopBase):
 
         agent_data.messages.extend(add_messages)
         # Update prompt with tool responses
+
+        _id = uuid4().hex[:8]
+
+        def snp(name):
+            return Snapshot(
+                f"handle_processing_tools/{_id}/{name}", subsys="agent_loop"
+            )
+
         if self.processor is not None:
+            snp("add_messages").snapshot(add_messages)
             raw_tool_response = await self.loop.run_in_executor(
                 None,
                 lambda: self.processor.apply_chat_template(
@@ -441,6 +428,8 @@ class ToolAgentLoop(AgentLoopBase):
                     **self.apply_chat_template_kwargs,
                 ),
             )
+            snp("raw_tool_response").snapshot(raw_tool_response)
+
             # Use only the new images from this turn for processing tool responses
             current_images = (
                 new_images_this_turn if new_images_this_turn else None
@@ -448,6 +437,7 @@ class ToolAgentLoop(AgentLoopBase):
             model_inputs = self.processor(
                 text=[raw_tool_response], images=current_images, return_tensors="pt"
             )
+            snp("model_inputs").snapshot(model_inputs)
             response_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
         else:
             if self.tool_parser_name == "gpt-oss":
@@ -575,11 +565,19 @@ class ToolAgentLoop(AgentLoopBase):
             tool_execution_response, tool_reward, res = await tool.execute(
                 instance_id, tool_args
             )
+
+            # dump tool example
+            Snapshot(
+                f"tool_execution_response/tool_args", subsys="agent_loop"
+            ).snapshot(tool_args)
+
         except Exception as e:
             logger.warning(f"Error when executing tool: {e}")
             return (
                 ToolResponse(
-                    text=f"Error when executing tool: {e}",
+                    content=[
+                        {"type": "text", "text": f"Error when executing tool: {e}"}
+                    ],
                 ),
                 0.0,
                 {},
@@ -588,33 +586,34 @@ class ToolAgentLoop(AgentLoopBase):
             if tool and instance_id:
                 await tool.release(instance_id)
 
-        tool_response_text = tool_execution_response.text
-        if (
-            tool_response_text
-            and len(tool_response_text) > self.max_tool_response_length
-        ):
-            if self.tool_response_truncate_side == "left":
-                tool_response_text = (
-                    tool_response_text[: self.max_tool_response_length]
-                    + "...(truncated)"
-                )
-            elif self.tool_response_truncate_side == "right":
-                tool_response_text = (
-                    "(truncated)..."
-                    + tool_response_text[-self.max_tool_response_length :]
-                )
-            else:
-                length = self.max_tool_response_length // 2
-                tool_response_text = (
-                    tool_response_text[:length]
-                    + "...(truncated)..."
-                    + tool_response_text[-length:]
-                )
+        tool_response_content = tool_execution_response.content
+        # tool_response_text = tool_execution_response.text
+        # if (
+        #     tool_response_text
+        #     and len(tool_response_text) > self.max_tool_response_length
+        # ):
+        #     if self.tool_response_truncate_side == "left":
+        #         tool_response_text = (
+        #             tool_response_text[: self.max_tool_response_length]
+        #             + "...(truncated)"
+        #         )
+        #     elif self.tool_response_truncate_side == "right":
+        #         tool_response_text = (
+        #             "(truncated)..."
+        #             + tool_response_text[-self.max_tool_response_length :]
+        #         )
+        #     else:
+        #         length = self.max_tool_response_length // 2
+        #         tool_response_text = (
+        #             tool_response_text[:length]
+        #             + "...(truncated)..."
+        #             + tool_response_text[-length:]
+        #         )
 
         # Create ToolResponse from tool execution result
-        tool_response_kwargs = {"text": tool_response_text}
+        tool_response_kwargs = {"content": tool_response_content}
 
-        # Add multimedia data if present
+        # Add multimedia data if presentcontent}
         for attr_name in ["image", "video"]:
             if hasattr(tool_execution_response, attr_name):
                 attr_value = getattr(tool_execution_response, attr_name)

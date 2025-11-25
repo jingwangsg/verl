@@ -30,6 +30,7 @@ from verl.trainer.ppo.utils import need_critic, need_reference_policy
 from verl.utils.config import validate_config
 from verl.utils.device import is_cuda_available
 from verl.utils.import_utils import load_extern_type
+from debug.snapshot import Snapshot
 
 
 @hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
@@ -39,6 +40,9 @@ def main(config):
     Args:
         config_dict: Hydra configuration dictionary containing training parameters.
     """
+
+    Snapshot("config").snapshot(config)
+
     run_ppo(config)
 
 
