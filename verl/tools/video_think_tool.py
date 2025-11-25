@@ -20,6 +20,7 @@ import re
 import time
 from typing import Any, Optional, Tuple, List
 from uuid import uuid4
+from functools import partial
 
 import numpy as np
 import torch
@@ -418,10 +419,11 @@ class VideoThinkTool(BaseTool):
                 loop = asyncio.get_running_loop()
                 decoder = await loop.run_in_executor(
                     None,
-                    VideoDecoder,
-                    instance_data["video_path"],
-                    "cpu",
-                    0  # num_ffmpeg_threads
+                    partial(VideoDecoder, instance_data["video_path"], num_ffmpeg_threads=0),
+                    # VideoDecoder,
+                    # instance_data["video_path"],
+                    # "cpu",
+                    # 0  # num_ffmpeg_threads
                 )
                 instance_data["vr_highres"] = decoder
                 logger.info(f"Initialized high-res decoder for {instance_data['video_path']}")
@@ -452,10 +454,11 @@ class VideoThinkTool(BaseTool):
                 loop = asyncio.get_running_loop()
                 decoder = await loop.run_in_executor(
                     None,
-                    VideoDecoder,
-                    instance_data["video_path"],
-                    "cpu",
-                    0  # num_ffmpeg_threads
+                    partial(VideoDecoder, instance_data["video_path"], num_ffmpeg_threads=0),
+                    # VideoDecoder,
+                    # instance_data["video_path"],
+                    # "cpu",
+                    # 0  # num_ffmpeg_threads
                 )
                 instance_data["vr"] = decoder
                 logger.info(f"Initialized low-res decoder for {instance_data['video_path']}")

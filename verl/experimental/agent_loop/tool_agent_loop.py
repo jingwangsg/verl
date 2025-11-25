@@ -152,7 +152,7 @@ class ToolAgentLoop(AgentLoopBase):
 
         # State machine loop
         state = AgentState.PENDING
-        breakpoint()
+        # breakpoint()
         while state != AgentState.TERMINATED:
             if state == AgentState.PENDING:
                 state = await self._handle_pending_state(agent_data, sampling_params)
