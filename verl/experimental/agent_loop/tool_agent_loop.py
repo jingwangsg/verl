@@ -308,7 +308,6 @@ class ToolAgentLoop(AgentLoopBase):
                 image_data=agent_data.image_data,
             )
 
-
         agent_data.assistant_turns += 1
         agent_data.response_ids = output.token_ids
         agent_data.prompt_ids += agent_data.response_ids
@@ -375,7 +374,9 @@ class ToolAgentLoop(AgentLoopBase):
         # Process tool responses and update multi_modal_data
         # Removed: agent_data.new_images_this_turn = []
         for tool_response, tool_reward, _ in responses:
-            add_messages = [{"role": self.tool_response_role, "content": tool_response.content}]
+            add_messages = [
+                {"role": self.tool_response_role, "content": tool_response.content}
+            ]
 
             # Handle image data
             if tool_response.image:
@@ -414,7 +415,8 @@ class ToolAgentLoop(AgentLoopBase):
 
         def snp(name):
             return Snapshot(
-                f"handle_processing_tools/{_id}/{name}", subsys="agent_loop"
+                f"agent_loop/_handle_processing_tools_state/{_id}/{name}",
+                subsys="agent_loop",
             )
 
         if self.processor is not None:
@@ -568,7 +570,8 @@ class ToolAgentLoop(AgentLoopBase):
 
             # dump tool example
             Snapshot(
-                f"tool_execution_response/tool_args", subsys="agent_loop"
+                f"agent_loop/_call_tool/{tool_args}",
+                subsys="agent_loop",
             ).snapshot(tool_args)
 
         except Exception as e:

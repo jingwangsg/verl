@@ -10,7 +10,8 @@ BASE_DATA_DIR=/mnt/amlfs-02/shared/datasets/s3/video_reason/Video-Holmes
 PROJECT_NAME=video_holmes_rl
 EXP_NAME=${EXP_NAME:-framethinker_debug}
 SAVE_CHECKPOINT_DIR=/mnt/amlfs-02/shared/datasets/checkpoints/jingwang/video_reason/
-MODEL_PATH=${MODEL_PATH:-Qwen/Qwen2.5-VL-7B-Instruct}
+CKPT_FULL=/mnt/amlfs-02/shared/checkpoints/jingwang/video_reason/sft/qwen2_5vl_7b_full_framethinker_sft
+MODEL_PATH=${MODEL_PATH:-$CKPT_FULL}
 
 # Use migrated datasets with tools_kwargs
 TRAIN_FILES=${TRAIN_FILES:-/mnt/amlfs-02/shared/datasets/s3/video_reason/Video-Holmes/train.parquet}
@@ -22,8 +23,6 @@ TOOL_CONFIG_PATH="$PROJECT_DIR/recipe/framethinker/video_think_tool_config.yaml"
 
 # Debug configuration: minimal resources
 PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
-    --config-path="examples/sglang_multiturn/config" \
-    --config-name="think_with_video" \
     "data.train_files=[${TRAIN_FILES}]" \
     "data.val_files=[${VAL_FILES}]" \
     data.train_batch_size=8 \
