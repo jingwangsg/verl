@@ -100,6 +100,7 @@ def _ulysses_flash_attention_forward(
 
         # (bsz, seq_len/n) -> (bsz, seq_len)
         position_ids_list = [torch.empty_like(position_ids) for _ in range(ulysses_sp_size)]
+        position_ids = position_ids.contiguous()
         torch.distributed.all_gather(position_ids_list, position_ids, group=get_ulysses_sequence_parallel_group())
         position_ids = torch.concat(position_ids_list, dim=-1)
 

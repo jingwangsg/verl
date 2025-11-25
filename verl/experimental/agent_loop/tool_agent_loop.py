@@ -39,8 +39,6 @@ from verl.tools.utils.tool_registry import initialize_tools_from_config
 from verl.utils.profiler import simple_timer
 from verl.utils.rollout_trace import rollout_trace_op
 
-from debug.snapshot import Snapshot
-
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
@@ -101,9 +99,6 @@ class ToolAgentLoop(AgentLoopBase):
         cls.tokenizer = tokenizer
         cls.processor = processor
 
-        Snapshot("tokenizer").snapshot(tokenizer)
-        Snapshot("processor").snapshot(processor)
-
         cls.max_user_turns = config.actor_rollout_ref.rollout.multi_turn.max_user_turns
         cls.max_assistant_turns = (
             config.actor_rollout_ref.rollout.multi_turn.max_assistant_turns
@@ -118,6 +113,7 @@ class ToolAgentLoop(AgentLoopBase):
             config.actor_rollout_ref.rollout.multi_turn.tool_response_truncate_side
         )
         tool_config_path = config.actor_rollout_ref.rollout.multi_turn.tool_config_path
+        cls.tool_config_path = tool_config_path
         tool_list = (
             initialize_tools_from_config(tool_config_path) if tool_config_path else []
         )
@@ -195,15 +191,6 @@ class ToolAgentLoop(AgentLoopBase):
         # State machine loop
         state = AgentState.PENDING
 
-        loop_uuid = uuid4().hex[:8]
-        prefix = f"agent_loop/{loop_uuid}"
-
-        def loop_snp(name):
-            return Snapshot(f"{prefix}/{name}", subsys="agent_loop")
-
-        index = 0
-        loop_snp("0_agent_data_PENDING").snapshot(agent_data)
-
         while state != AgentState.TERMINATED:
             if state == AgentState.PENDING:
                 state = await self._handle_pending_state(agent_data, sampling_params)
@@ -216,9 +203,6 @@ class ToolAgentLoop(AgentLoopBase):
             else:
                 logger.error(f"Invalid state: {state}")
                 state = AgentState.TERMINATED
-
-            index += 1
-            loop_snp(f"{index}_agent_data_{state.value}").snapshot(agent_data)
 
         # Finalize output
         response_ids = agent_data.prompt_ids[-len(agent_data.response_mask) :]
@@ -244,8 +228,6 @@ class ToolAgentLoop(AgentLoopBase):
             metrics=agent_data.metrics,
             extra_fields={},
         )
-
-        loop_snp("agent_loop_output").snapshot(output)
 
         output.extra_fields.update(
             {
@@ -411,16 +393,7 @@ class ToolAgentLoop(AgentLoopBase):
         agent_data.messages.extend(add_messages)
         # Update prompt with tool responses
 
-        _id = uuid4().hex[:8]
-
-        def snp(name):
-            return Snapshot(
-                f"agent_loop/_handle_processing_tools_state/{_id}/{name}",
-                subsys="agent_loop",
-            )
-
         if self.processor is not None:
-            snp("add_messages").snapshot(add_messages)
             raw_tool_response = await self.loop.run_in_executor(
                 None,
                 lambda: self.processor.apply_chat_template(
@@ -430,7 +403,6 @@ class ToolAgentLoop(AgentLoopBase):
                     **self.apply_chat_template_kwargs,
                 ),
             )
-            snp("raw_tool_response").snapshot(raw_tool_response)
 
             # Use only the new images from this turn for processing tool responses
             current_images = (
@@ -439,7 +411,6 @@ class ToolAgentLoop(AgentLoopBase):
             model_inputs = self.processor(
                 text=[raw_tool_response], images=current_images, return_tensors="pt"
             )
-            snp("model_inputs").snapshot(model_inputs)
             response_ids = model_inputs.pop("input_ids").squeeze(0).tolist()
         else:
             if self.tool_parser_name == "gpt-oss":
@@ -559,6 +530,15 @@ class ToolAgentLoop(AgentLoopBase):
             # TODO: append malformed tool_call to the prompt: invalid function name or arguments
             tool_name = tool_call.name
             tool_args = json.loads(tool_call.arguments)
+            if tool_name not in self.tools:
+                available = ", ".join(sorted(self.tools.keys())) or "none"
+                config_hint = getattr(self, "tool_config_path", None) or "unset"
+                raise KeyError(
+                    f"Tool '{tool_name}' is not registered. "
+                    f"Available tools: {available}. "
+                    f"Check multi_turn.tool_config_path={config_hint}"
+                )
+
             tool = self.tools[tool_name]
             kwargs = tools_kwargs.get(tool_name, {})
             instance_id, _ = await tool.create(
@@ -567,12 +547,6 @@ class ToolAgentLoop(AgentLoopBase):
             tool_execution_response, tool_reward, res = await tool.execute(
                 instance_id, tool_args
             )
-
-            # dump tool example
-            Snapshot(
-                f"agent_loop/_call_tool/{tool_args}",
-                subsys="agent_loop",
-            ).snapshot(tool_args)
 
         except Exception as e:
             logger.warning(f"Error when executing tool: {e}")

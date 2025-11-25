@@ -508,6 +508,36 @@ class DataParallelPPOActor(BasePPOActor):
                         )
                         micro_batch_metrics.update(rollout_corr_metrics)
 
+                    if rollout_log_prob is not None:
+                        # Log rollout vs actor probability gaps for debugging/numerical drift checks
+                        with torch.no_grad():
+                            response_mask_bool = response_mask.to(torch.bool)
+                            if torch.any(response_mask_bool):
+                                probs_diff = torch.exp(log_prob) - torch.exp(rollout_log_prob)
+                                probs_diff_valid = torch.masked_select(probs_diff, response_mask_bool)
+                                probs_diff_abs = probs_diff_valid.abs()
+                                log_probs_diff = torch.masked_select(
+                                    log_prob - rollout_log_prob, response_mask_bool
+                                )
+
+                                seq_iw = ((log_prob - rollout_log_prob) * response_mask).sum(dim=-1)
+                                seq_iw_abs = seq_iw.abs()
+
+                                micro_batch_metrics.update(
+                                    {
+                                        "actor/probs_diff_max": probs_diff_valid.max().detach().item(),
+                                        "actor/probs_diff_min": probs_diff_valid.min().detach().item(),
+                                        "actor/probs_diff_mean": probs_diff_abs.mean().detach().item(),
+                                        "actor/probs_diff_std": probs_diff_abs.std().detach().item(),
+                                        "actor/log_probs_diff_max": log_probs_diff.max().detach().item(),
+                                        "actor/log_probs_diff_min": log_probs_diff.min().detach().item(),
+                                        "actor/log_seq_iw_max": seq_iw.max().detach().item(),
+                                        "actor/log_seq_iw_min": seq_iw.min().detach().item(),
+                                        "actor/log_seq_iw_mean": seq_iw_abs.mean().detach().item(),
+                                        "actor/log_seq_iw_std": seq_iw_abs.std().detach().item(),
+                                    }
+                                )
+
                     if entropy_coeff != 0:
                         entropy_loss = agg_loss(loss_mat=entropy, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
 
