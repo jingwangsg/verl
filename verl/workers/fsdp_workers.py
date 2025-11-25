@@ -35,6 +35,7 @@ from safetensors.torch import save_file
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp.api import FullStateDictConfig, ShardedStateDictConfig, StateDictType
+from debug.snapshot import Snapshot
 
 try:
     # for torch 2.5+
@@ -617,9 +618,11 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
         # 4. build rollout model
         log_gpu_memory_usage(f"Before building {self.config.rollout.name} rollout", logger=logger)
+
         self.rollout = get_rollout_class(rollout_config.name, rollout_config.mode)(
             config=rollout_config, model_config=model_config, device_mesh=rollout_device_mesh
         )
+
         log_gpu_memory_usage(f"After building {self.config.rollout.name} rollout", logger=logger)
 
         # Full params

@@ -4,9 +4,9 @@
 tools:
   - class_name: "verl.tools.video_think_tool.VideoThinkTool"
     config:
-      max_workers: 4          # Number of worker threads for async video operations
-      timeout: 30             # Timeout for operations in seconds
-      type: native            # Native async tool implementation
+      max_workers: 4 # Number of worker threads for async video operations
+      timeout: 30 # Timeout for operations in seconds
+      type: native # Native async tool implementation
 
     tool_schema:
       type: "function"
