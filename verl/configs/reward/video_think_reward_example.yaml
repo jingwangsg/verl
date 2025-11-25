@@ -1,0 +1,194 @@
+# Example configuration for think_with_video reward function
+#
+# This reward function validates and scores agent trajectories that explore videos
+# through actions like frame selection, time queries, and zooming, before outputting
+# a final answer.
+#
+# Usage:
+#   1. Copy this file to your project config directory
+#   2. Adjust reward_kwargs based on your task requirements
+#   3. Reference this config in your main training configuration
+
+custom_reward_function:
+  # Path to the reward function module (relative to project root)
+  path: verl/utils/reward_score/think_with_video_reward.py
+
+  # Function name to call (must match the function in the module)
+  name: compute_score
+
+  # Keyword arguments passed to compute_score()
+  reward_kwargs:
+    # Minimum frame range size for frame selection actions
+    # Default: 8 (must select at least 8 frames difference)
+    nframes: 8
+
+    # Bonus reward for using time queries on temporal questions
+    # Default: 0.5
+    # Only awarded if:
+    #   1. Answer is correct
+    #   2. Used "get frame number at time MM:SS" action
+    #   3. Question contains time pattern (e.g., "1:30", "2:45:10")
+    lambda_gfn: 0.5
+
+    # Bonus reward for frame selection (exploration)
+    # Default: 0.02
+    # Only awarded if:
+    #   1. Answer is correct
+    #   2. Used "choose frames between X and Y" action at least once
+    lambda_cf: 0.02
+
+    # Bonus reward for using zoom feature
+    # Default: 0.1
+    # Only awarded if:
+    #   1. Answer is correct
+    #   2. Used "zoom in frame X" action at least once
+    alpha_zoom: 0.1
+
+# Expected data format for training
+# Your parquet files should contain these columns:
+data_format:
+  # Required columns
+  required:
+    - predict_str: "Complete model response with all <think> and <action> blocks"
+    - ground_truth: "Correct answer (usually single token like 'A', 'B', 'C', 'D')"
+    - extra_info: "Dictionary containing question, total_frames, video_path, etc."
+
+  # Example extra_info structure
+  extra_info_schema:
+    question: "What happens at 1:30?"  # Required
+    total_frames: 9000                  # Required
+    video_path: "/path/to/video.mp4"   # Optional but recommended
+    fps: 30                             # Optional
+    width: 1920                         # Optional
+    height: 1080                        # Optional
+
+# Reward structure explanation
+reward_structure:
+  # Format score (binary)
+  format:
+    valid: 1.0      # All validation rules pass
+    invalid: 0.0    # Any validation rule fails
+
+  # Accuracy score (binary)
+  acc:
+    correct: 1.0    # Model answer matches ground truth
+    incorrect: 0.0  # Model answer does not match
+
+  # Bonus scores (cumulative, only if answer is correct)
+  other:
+    time_query_bonus: 0.5   # If used time query on temporal question
+    frame_selection_bonus: 0.02  # If selected frames for exploration
+    zoom_bonus: 0.1         # If used zoom feature
+
+  # Total score range
+  total:
+    min: 0.0      # All checks fail
+    max: 1.62     # Perfect answer + all bonuses (1.0 + 0.5 + 0.02 + 0.1)
+
+# Validation rules
+validation_rules:
+  - "Must have matching <think> and <action> pairs"
+  - "Last action must be 'output answer: X'"
+  - "No duplicate frame selections"
+  - "No duplicate time queries"
+  - "Frame ranges must be large enough (>= nframes)"
+  - "Numbers in actions must appear in corresponding think blocks"
+  - "Time queries must be followed by using the returned frame"
+  - "Zoom frame indices must be valid (within [0, total_frames))"
+
+# Example trajectory formats
+examples:
+  correct_with_bonuses:
+    predict_str: |
+      <think>I need to check what happens at 1:30 in the video.</think>
+      <action>get frame number at time 01:30</action>
+      The frame number at time 01:30 is: 2700
+      <think>Let me zoom in on frame 2700 to see details.</think>
+      <action>zoom in frame 2700</action>
+      <think>I can see the person is dancing. Let me explore nearby frames.</think>
+      <action>choose frames between 2650 and 2750</action>
+      <think>Based on the frames, the answer is B.</think>
+      <action>output answer: B</action>
+    ground_truth: "B"
+    extra_info:
+      question: "What is the person doing at 1:30?"
+      total_frames: 9000
+      video_path: "video.mp4"
+    expected_reward:
+      score: 1.62  # 1.0 (acc) + 0.5 (time) + 0.02 (frame) + 0.1 (zoom)
+      acc: 1.0
+      format: 1.0
+      other: 0.62
+
+  correct_basic:
+    predict_str: |
+      <think>Let me analyze the video frames.</think>
+      <action>choose frames between 0 and 100</action>
+      <think>The answer is C.</think>
+      <action>output answer: C</action>
+    ground_truth: "C"
+    extra_info:
+      question: "What color is the car?"
+      total_frames: 300
+    expected_reward:
+      score: 1.02  # 1.0 (acc) + 0.02 (frame)
+      acc: 1.0
+      format: 1.0
+      other: 0.02
+
+  format_error:
+    predict_str: |
+      <think>Let me check.</think>
+      <action>choose frames between 0 and 5</action>
+      <think>Answer is A.</think>
+      <action>output answer: A</action>
+    ground_truth: "A"
+    extra_info:
+      question: "What is shown?"
+      total_frames: 100
+    expected_reward:
+      score: 0.0  # Frame range too small (< 8 frames)
+      acc: 0.0
+      format: 0.0
+      other: 0.0
+
+  wrong_answer:
+    predict_str: |
+      <think>I think it's A.</think>
+      <action>choose frames between 0 and 100</action>
+      <think>Yes, it's A.</think>
+      <action>output answer: A</action>
+    ground_truth: "B"
+    extra_info:
+      question: "What is the answer?"
+      total_frames: 300
+    expected_reward:
+      score: 0.0  # Wrong answer, no bonuses
+      acc: 0.0
+      format: 1.0
+      other: 0.0
+
+# Tips for optimal training
+tips:
+  - "Encourage temporal reasoning by setting lambda_gfn higher (e.g., 0.7-1.0)"
+  - "Encourage exploration by setting lambda_cf higher (e.g., 0.05-0.1)"
+  - "Balance format enforcement vs exploration with nframes parameter"
+  - "Monitor format score to ensure model learns valid action syntax"
+  - "Track bonus scores to see if model learns advanced behaviors"
+
+# Troubleshooting
+troubleshooting:
+  low_format_scores:
+    - "Check if model is generating matching <think>/<action> pairs"
+    - "Verify last action is always 'output answer: X'"
+    - "Check for duplicate frame selections or time queries"
+
+  low_bonus_scores:
+    - "Increase bonus weights to incentivize behavior"
+    - "Check if model is using advanced actions (time query, zoom)"
+    - "Verify questions actually contain temporal patterns for time bonus"
+
+  high_variance:
+    - "Consider adjusting nframes threshold"
+    - "Monitor if format errors are causing score instability"
+    - "Check if validation rules are too strict for your data"

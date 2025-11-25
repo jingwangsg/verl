@@ -1,0 +1,34 @@
+# VideoThinkTool configuration for FrameThinker agent loop
+# This tool enables interactive video exploration with frame-level analysis
+
+tools:
+  - class_name: "verl.tools.video_think_tool.VideoThinkTool"
+    config:
+      max_workers: 4          # Number of worker threads for async video operations
+      timeout: 30             # Timeout for operations in seconds
+      type: native            # Native async tool implementation
+
+    tool_schema:
+      type: "function"
+      function:
+        name: "video_think"
+        description: |
+          Interactive video exploration tool for frame-level analysis.
+          This tool allows you to:
+          1. Get frame numbers from timestamps (e.g., "get frame number at time 01:30")
+          2. Zoom in on specific frames for high-resolution inspection (e.g., "zoom in frame 450")
+          3. Sample frame ranges for analysis (e.g., "choose frames between 100 and 500")
+
+          Use this tool to systematically explore video content and identify relevant frames for answering questions.
+        parameters:
+          type: "object"
+          properties:
+            action_string:
+              type: "string"
+              description: |
+                The action to perform. Supported formats:
+                - "get frame number at time MM:SS" - Convert timestamp to frame number
+                - "zoom in frame <FRAME_INDEX>" - Extract high-resolution single frame (360px)
+                - "choose frames between <START> and <END>" - Sample 8-12 frames from range (256px)
+          required:
+            - action_string

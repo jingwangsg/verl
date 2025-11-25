@@ -89,7 +89,7 @@ class ResourcePoolManager:
             )
             self.resource_pool_dict[resource_pool_name] = resource_pool
 
-        self._check_resource_available()
+        # self._check_resource_available()
 
     def get_resource_pool(self, role: Role) -> RayResourcePool:
         """Get the resource pool of the worker_cls"""
@@ -485,6 +485,32 @@ class RayPPOTrainer:
                 dump_path=rollout_data_dir,
             )
 
+    def _log_prompt_length_stats(self, batch: DataProto, tag: str):
+        """Print the maximum prompt token length in the rollout batch."""
+        if "prompts" not in batch.batch:
+            return
+        prompts = batch.batch["prompts"]
+        if not isinstance(prompts, torch.Tensor):
+            prompts = torch.tensor(prompts)
+        pad_token_id = getattr(self.tokenizer, "pad_token_id", None)
+        if pad_token_id is None:
+            lengths = torch.full((prompts.size(0),), prompts.size(-1), device=prompts.device, dtype=torch.long)
+        else:
+            lengths = torch.sum(prompts.ne(pad_token_id), dim=-1)
+        max_len = int(lengths.max().item()) if lengths.numel() > 0 else 0
+        print(f"[PromptStats][{tag}] max prompt tokens: {max_len}")
+
+    def _generate_sequences_with_logging(self, batch: DataProto, tag: str) -> DataProto:
+        """Run rollout generation and log prompt-length stats for debugging."""
+        if not self.async_rollout_mode:
+            output = self.actor_rollout_wg.generate_sequences(batch)
+            mode = "rollout"
+        else:
+            output = self.async_rollout_manager.generate_sequences(batch)
+            mode = "agent_loop"
+        self._log_prompt_length_stats(output, f"{tag}/{mode}")
+        return output
+
     def _maybe_log_val_generations(self, inputs, outputs, scores):
         """Log a table of validation samples to the configured logger (wandb or swanlab)"""
 
@@ -585,10 +611,9 @@ class RayPPOTrainer:
                 else self.config.actor_rollout_ref.rollout.agent.num_workers
             )
             test_gen_batch_padded, pad_size = pad_dataproto_to_divisor(test_gen_batch, size_divisor)
-            if not self.async_rollout_mode:
-                test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
-            else:
-                test_output_gen_batch_padded = self.async_rollout_manager.generate_sequences(test_gen_batch_padded)
+            test_output_gen_batch_padded = self._generate_sequences_with_logging(
+                test_gen_batch_padded, tag="validation"
+            )
 
             # unpad
             test_output_gen_batch = unpad_dataproto(test_output_gen_batch_padded, pad_size=pad_size)
@@ -1036,10 +1061,9 @@ class RayPPOTrainer:
                 with marked_timer("step", timing_raw):
                     # generate a batch
                     with marked_timer("gen", timing_raw, color="red"):
-                        if not self.async_rollout_mode:
-                            gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch_output)
-                        else:
-                            gen_batch_output = self.async_rollout_manager.generate_sequences(gen_batch_output)
+                        gen_batch_output = self._generate_sequences_with_logging(
+                            gen_batch_output, tag="rollout"
+                        )
 
                         timing_raw.update(gen_batch_output.meta_info["timing"])
                         gen_batch_output.meta_info.pop("timing", None)
@@ -1051,10 +1075,9 @@ class RayPPOTrainer:
                         with marked_timer("gen_max", timing_raw, color="purple"):
                             gen_baseline_batch = deepcopy(gen_batch)
                             gen_baseline_batch.meta_info["do_sample"] = False
-                            if not self.async_rollout_mode:
-                                gen_baseline_output = self.actor_rollout_wg.generate_sequences(gen_baseline_batch)
-                            else:
-                                gen_baseline_output = self.async_rollout_manager.generate_sequences(gen_baseline_batch)
+                            gen_baseline_output = self._generate_sequences_with_logging(
+                                gen_baseline_batch, tag="baseline"
+                            )
                             batch = batch.union(gen_baseline_output)
                             # compute reward model score on batch
                             rm_scores = None

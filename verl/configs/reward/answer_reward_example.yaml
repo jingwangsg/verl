@@ -1,0 +1,308 @@
+# Example configuration for answer_reward function (RAG-style answer generation)
+#
+# This reward function validates and scores responses that use retrieval documents
+# and <think>/<answer> tags for structured reasoning.
+#
+# Usage:
+#   1. Copy this file to your project config directory
+#   2. Adjust configuration if needed (this function has no reward_kwargs)
+#   3. Reference this config in your main training configuration
+
+custom_reward_function:
+  # Path to the reward function module (relative to project root)
+  path: verl/utils/reward_score/answer_reward.py
+
+  # Function name to call (must match the function in the module)
+  name: compute_score
+
+  # This reward function has no configurable parameters
+  # reward_kwargs: {}  # Empty or omitted
+
+# Expected data format for training
+# Your parquet files should contain these columns:
+data_format:
+  # Required columns
+  required:
+    - predict_str: "Complete model response (will be prepended with '<think>')"
+    - ground_truth: "Correct answer text"
+    - extra_info: "Optional dictionary (not used by this function)"
+
+  # Note: The function automatically prepends '<think>' to predict_str
+  # So your predict_str should NOT start with '<think>'
+
+  # Example format
+  example_predict_str: |
+    <|begin_of_documents|>
+    (1) The Eiffel Tower is located in Paris, France.
+    (2) It was built in 1889 for the World's Fair.
+    (3) The tower is 330 meters tall.
+    <|end_of_documents|>
+    <|begin_of_query|>
+    Where is the Eiffel Tower located?
+    <|end_of_query|>
+    Let me find this information in the documents.
+    According to document 1, the Eiffel Tower is in Paris.
+    </think>
+    <answer>Paris France</answer>
+
+# Reward structure explanation
+reward_structure:
+  # Format reward
+  format:
+    valid: 0.0      # All validation rules pass
+    invalid: -1.0   # Any validation rule fails
+
+  # Retrieval reward
+  retrieval:
+    used: 1.0       # Documents contain at least one indexed item "(1)"
+    not_used: -1.0  # No indexed documents found
+
+  # Accuracy reward (based on F1 score)
+  acc:
+    calculation: "2.0 * F1_score"  # Range: [0.0, 2.0]
+    max: 2.0      # Perfect match (F1 = 1.0)
+    min: 0.0      # No match (F1 = 0.0)
+
+  # Total score range
+  total:
+    min: -2.0     # Format error (-1.0) + no retrieval (-1.0) + no match (0.0)
+    max: 3.0      # Valid format (0.0) + used retrieval (1.0) + perfect match (2.0)
+
+# Format requirements (all must be satisfied)
+format_requirements:
+  document_tags:
+    - "Must have matching <|begin_of_documents|> ... <|end_of_documents|>"
+    - "Tags must end with newline: <|begin_of_documents|>\\n and <|end_of_documents|>\\n"
+
+  query_tags:
+    - "Must have matching <|begin_of_query|> ... <|end_of_query|>"
+
+  think_tags:
+    - "Must have matching <think> ... </think> tags"
+    - "Function automatically prepends <think> to predict_str"
+
+  answer_tags:
+    - "Must have exactly one <answer> ... </answer> pair"
+    - "Answer must not contain 'begin_of_query' or 'begin_of_documents'"
+    - "Answer must be ≤ 10 words"
+
+  forbidden:
+    - "Must not contain 'Assistant:' or 'assistant:'"
+
+  retrieval:
+    - "Must use retrieval: at least one document with index like '(1)'"
+
+# F1 Score calculation details
+f1_score:
+  normalization:
+    - "Convert to lowercase"
+    - "Remove articles (a, an, the)"
+    - "Remove punctuation"
+    - "Replace underscores with spaces"
+    - "Fix whitespace"
+    - "Map boolean strings: 'True' -> 'yes', 'False' -> 'no'"
+
+  special_handling:
+    - "For yes/no/noanswer: must match exactly after normalization"
+
+  calculation:
+    - "Tokenize by whitespace"
+    - "Count overlapping tokens (multiset intersection)"
+    - "Precision = overlap / prediction_tokens"
+    - "Recall = overlap / ground_truth_tokens"
+    - "F1 = 2 * (precision * recall) / (precision + recall)"
+
+# Example trajectories
+examples:
+  perfect_score:
+    predict_str: |
+      <|begin_of_documents|>
+      (1) The capital of France is Paris.
+      (2) Paris is known for the Eiffel Tower.
+      <|end_of_documents|>
+      <|begin_of_query|>
+      What is the capital of France?
+      <|end_of_query|>
+      Based on document 1, the capital is Paris.
+      </think>
+      <answer>Paris</answer>
+    ground_truth: "Paris"
+    expected_reward:
+      score: 3.0        # 0.0 (format) + 1.0 (retrieval) + 2.0 (acc)
+      format: 0.0
+      retrieval: 1.0
+      acc: 2.0
+      f1: 1.0
+      precision: 1.0
+      recall: 1.0
+
+  partial_match:
+    predict_str: |
+      <|begin_of_documents|>
+      (1) The Eiffel Tower is 330 meters tall.
+      <|end_of_documents|>
+      <|begin_of_query|>
+      How tall is the Eiffel Tower?
+      <|end_of_query|>
+      According to the document, it's 330 meters.
+      </think>
+      <answer>330 meters tall structure</answer>
+    ground_truth: "330 meters"
+    expected_reward:
+      score: 2.33       # 0.0 + 1.0 + 1.33 (F1 ≈ 0.67)
+      format: 0.0
+      retrieval: 1.0
+      acc: 1.33         # 2.0 * 0.67
+      f1: 0.67
+      precision: 0.67   # 2 of 3 tokens match
+      recall: 1.0       # 2 of 2 tokens match
+
+  format_error_long_answer:
+    predict_str: |
+      <|begin_of_documents|>
+      (1) Some context here.
+      <|end_of_documents|>
+      <|begin_of_query|>
+      What is the answer?
+      <|end_of_query|>
+      Let me think about this.
+      </think>
+      <answer>This is a very long answer that exceeds the ten word limit clearly</answer>
+    ground_truth: "short answer"
+    expected_reward:
+      score: -1.0       # -1.0 (format) + 1.0 (retrieval) + 0.0 (no F1 due to format error) = 0.0, but total capped at format error
+      format: -1.0
+      retrieval: 1.0
+      acc: 0.0
+      f1: 0.0
+
+  no_retrieval:
+    predict_str: |
+      <|begin_of_documents|>
+      Some text without index numbers.
+      <|end_of_documents|>
+      <|begin_of_query|>
+      What is X?
+      <|end_of_query|>
+      I think the answer is Y.
+      </think>
+      <answer>Y</answer>
+    ground_truth: "Y"
+    expected_reward:
+      score: 1.0        # 0.0 (format) + (-1.0) (no retrieval) + 2.0 (perfect F1)
+      format: 0.0
+      retrieval: -1.0
+      acc: 2.0
+      f1: 1.0
+
+  missing_answer_tags:
+    predict_str: |
+      <|begin_of_documents|>
+      (1) Context here.
+      <|end_of_documents|>
+      <|begin_of_query|>
+      Question?
+      <|end_of_query|>
+      My reasoning here.
+      </think>
+      The answer is Paris.
+    ground_truth: "Paris"
+    expected_reward:
+      score: 0.0        # Format error due to missing <answer> tags
+      format: -1.0
+      retrieval: 1.0
+      acc: 0.0
+      f1: 0.0
+
+  yes_no_question_correct:
+    predict_str: |
+      <|begin_of_documents|>
+      (1) The sky is blue.
+      <|end_of_documents|>
+      <|begin_of_query|>
+      Is the sky blue?
+      <|end_of_query|>
+      Yes, according to the document.
+      </think>
+      <answer>yes</answer>
+    ground_truth: "True"  # Will be mapped to "yes"
+    expected_reward:
+      score: 3.0
+      format: 0.0
+      retrieval: 1.0
+      acc: 2.0
+      f1: 1.0
+
+  yes_no_question_wrong:
+    predict_str: |
+      <|begin_of_documents|>
+      (1) Context.
+      <|end_of_documents|>
+      <|begin_of_query|>
+      Question?
+      <|end_of_query|>
+      I think no.
+      </think>
+      <answer>no</answer>
+    ground_truth: "yes"
+    expected_reward:
+      score: 0.0        # 0.0 + 1.0 + (-1.0) due to yes/no mismatch
+      format: 0.0
+      retrieval: 1.0
+      acc: 0.0
+      f1: 0.0
+
+# Tips for optimal training
+tips:
+  - "Ensure training data uses indexed documents: (1), (2), (3)..."
+  - "Keep answers concise (≤10 words) to avoid format penalties"
+  - "Use <think> for reasoning, <answer> for final answer only"
+  - "Ground truth should be normalized (lowercase, no punctuation) for better F1"
+  - "For yes/no questions, use 'yes'/'no' or 'True'/'False' consistently"
+  - "Monitor retrieval_reward to ensure model uses documents effectively"
+
+# Troubleshooting
+troubleshooting:
+  low_format_scores:
+    - "Check if all document/query/think/answer tags are properly closed"
+    - "Verify documents use indexed format: (1), (2), etc."
+    - "Ensure answers are ≤10 words"
+    - "Remove any 'Assistant:' prefixes from responses"
+
+  low_retrieval_scores:
+    - "Check if documents contain indexed items like '(1)'"
+    - "Ensure document tags end with newline: <|begin_of_documents|>\\n"
+    - "Verify retrieval documents are being included in predict_str"
+
+  low_f1_scores:
+    - "Check if answers are too verbose (include extra words)"
+    - "Verify ground truth normalization matches prediction normalization"
+    - "For yes/no questions, ensure consistent format"
+    - "Consider if answers contain unnecessary elaboration"
+
+  negative_scores:
+    - "Usually indicates format errors (-1.0) combined with no retrieval (-1.0)"
+    - "Fix format issues first, then check retrieval usage"
+    - "Ensure all required tags are present and properly formatted"
+
+# Comparison with think_with_video_reward
+differences_from_video_reward:
+  reward_range:
+    answer_reward: "[-2.0, 3.0]"
+    video_reward: "[0.0, 1.62]"
+
+  format_penalty:
+    answer_reward: "-1.0 (harsh penalty)"
+    video_reward: "0.0 (no reward, not negative)"
+
+  accuracy_calculation:
+    answer_reward: "2.0 * F1 score (continuous, based on token overlap)"
+    video_reward: "1.0 or 0.0 (binary, exact match only)"
+
+  additional_rewards:
+    answer_reward: "retrieval_reward (+1.0 or -1.0)"
+    video_reward: "exploration bonuses (time query, frame selection, zoom)"
+
+  use_cases:
+    answer_reward: "RAG tasks, document Q&A, factoid questions"
+    video_reward: "Video understanding, interactive exploration, multi-turn reasoning"

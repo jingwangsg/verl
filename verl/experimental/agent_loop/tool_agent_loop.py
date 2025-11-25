@@ -105,9 +105,12 @@ class ToolAgentLoop(AgentLoopBase):
         cls.apply_chat_template_kwargs = config.data.get("apply_chat_template_kwargs", {})
         cls.prompt_length = config.actor_rollout_ref.rollout.prompt_length
         cls.response_length = config.actor_rollout_ref.rollout.response_length
+        cls.max_total_sequence_length = cls.prompt_length + cls.response_length
         cls.system_prompt = tokenizer.apply_chat_template(
             [{}], add_generation_prompt=False, tokenize=True, **cls.apply_chat_template_kwargs
         )
+        # Tool response role configuration (default: "tool", can be set to "user" for compatibility)
+        cls.tool_response_role = config.actor_rollout_ref.rollout.multi_turn.get("tool_response_role", "tool")
         # Initialize interactions from config file
         cls.interaction_config_file = config.actor_rollout_ref.rollout.multi_turn.interaction_config_path
         if cls.interaction_config_file:
@@ -149,6 +152,7 @@ class ToolAgentLoop(AgentLoopBase):
 
         # State machine loop
         state = AgentState.PENDING
+        breakpoint()
         while state != AgentState.TERMINATED:
             if state == AgentState.PENDING:
                 state = await self._handle_pending_state(agent_data, sampling_params)
@@ -209,6 +213,10 @@ class ToolAgentLoop(AgentLoopBase):
             )
         return AgentState.GENERATING
 
+    def _exceeds_total_sequence_length(self, agent_data: AgentData) -> bool:
+        """Return True if the accumulated prompt exceeds the max prompt+response budget."""
+        return len(agent_data.prompt_ids) >= self.max_total_sequence_length
+
     async def _handle_generating_state(
         self, agent_data: AgentData, sampling_params: dict[str, Any], ignore_termination: bool = False
     ) -> AgentState:
@@ -236,6 +244,8 @@ class ToolAgentLoop(AgentLoopBase):
         if self.max_assistant_turns and agent_data.assistant_turns >= self.max_assistant_turns:
             return AgentState.TERMINATED
         if self.max_user_turns and agent_data.user_turns >= self.max_user_turns:
+            return AgentState.TERMINATED
+        if self._exceeds_total_sequence_length(agent_data):
             return AgentState.TERMINATED
 
         # Extract tool calls
@@ -290,10 +300,10 @@ class ToolAgentLoop(AgentLoopBase):
                     content.append({"type": "video"})
                 if tool_response.text:
                     content.append({"type": "text", "text": tool_response.text})
-                message = {"role": "tool", "content": content}
+                message = {"role": self.tool_response_role, "content": content}
             else:
                 # Text-only content
-                message = {"role": "tool", "content": tool_response.text or ""}
+                message = {"role": self.tool_response_role, "content": tool_response.text or ""}
 
             add_messages.append(message)
 
@@ -374,6 +384,8 @@ class ToolAgentLoop(AgentLoopBase):
         if agent_data.response_logprobs:
             agent_data.response_logprobs += [0.0] * len(response_ids)
         agent_data.user_turns += 1
+        if self._exceeds_total_sequence_length(agent_data):
+            return AgentState.TERMINATED
         return AgentState.GENERATING
 
     async def _handle_interacting_state(self, agent_data: AgentData) -> AgentState:
@@ -421,6 +433,8 @@ class ToolAgentLoop(AgentLoopBase):
             agent_data.response_logprobs += [0.0] * len(response_ids)
 
         # double check prompt
+        if self._exceeds_total_sequence_length(agent_data):
+            return AgentState.TERMINATED
         # Check termination condition
         if should_terminate_sequence:
             return AgentState.TERMINATED

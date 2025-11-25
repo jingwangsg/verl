@@ -39,6 +39,7 @@ from verl.utils.torch_functional import logprobs_from_logits
 from verl.utils.ulysses import gather_outputs_and_unpad, ulysses_pad, ulysses_pad_and_slice_inputs
 from verl.workers.actor import BasePPOActor
 from verl.workers.config import ActorConfig
+from verl.utils.profiler import log_gpu_memory_usage
 
 __all__ = ["DataParallelPPOActor"]
 
@@ -373,6 +374,8 @@ class DataParallelPPOActor(BasePPOActor):
         # make sure we are in training mode
         self.actor_module.train()
 
+        log_gpu_memory_usage("update_policy: start", logger=logger)
+
         temperature = data.meta_info["temperature"]  # temperature must be in the data.meta_info to avoid silent error
 
         select_keys = [
@@ -399,15 +402,22 @@ class DataParallelPPOActor(BasePPOActor):
 
         data = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
 
+        log_gpu_memory_usage("update_policy: after data select", logger=logger)
+
         # Split to make minibatch iterator for updating the actor
         # See PPO paper for details. https://arxiv.org/abs/1707.06347
         mini_batches = data.split(self.config.ppo_mini_batch_size)
 
         on_policy = len(mini_batches) == 1 and self.config.ppo_epochs == 1
 
+        log_gpu_memory_usage("update_policy: after data split", logger=logger)
+
         metrics = {}
-        for _ in range(self.config.ppo_epochs):
+        for epoch_idx in range(self.config.ppo_epochs):
+            log_gpu_memory_usage(f"update_policy: epoch {epoch_idx} start", logger=logger)
             for batch_idx, mini_batch in enumerate(mini_batches):
+                log_gpu_memory_usage(f"update_policy: epoch {epoch_idx} mini_batch {batch_idx} start", logger=logger)
+
                 if self.config.use_dynamic_bsz:
                     max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
                     micro_batches, _ = prepare_dynamic_batch(mini_batch, max_token_len=max_token_len)
@@ -417,9 +427,14 @@ class DataParallelPPOActor(BasePPOActor):
                     )
                     micro_batches = mini_batch.split(self.config.ppo_micro_batch_size_per_gpu)
 
-                self.actor_optimizer.zero_grad()
+                log_gpu_memory_usage(f"update_policy: epoch {epoch_idx} mini_batch {batch_idx} after prepare micro_batches", logger=logger)
 
-                for micro_batch in micro_batches:
+                self.actor_optimizer.zero_grad()
+                log_gpu_memory_usage(f"update_policy: epoch {epoch_idx} mini_batch {batch_idx} after zero_grad", logger=logger)
+
+                for micro_batch_idx, micro_batch in enumerate(micro_batches):
+                    log_gpu_memory_usage(f"update_policy: epoch {epoch_idx} mini_batch {batch_idx} micro_batch {micro_batch_idx} start", logger=logger)
+
                     micro_batch = micro_batch.to(get_device_id())
                     micro_batch_metrics = {}
                     model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
@@ -435,6 +450,8 @@ class DataParallelPPOActor(BasePPOActor):
                     else:
                         loss_scale_factor = 1 / self.gradient_accumulation
 
+                    log_gpu_memory_usage(f"update_policy: epoch {epoch_idx} mini_batch {batch_idx} micro_batch {micro_batch_idx} before forward", logger=logger)
+
                     # all return: (bsz, response_length)
                     calculate_entropy = False
                     if entropy_coeff != 0:
@@ -442,6 +459,8 @@ class DataParallelPPOActor(BasePPOActor):
                     entropy, log_prob = self._forward_micro_batch(
                         model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
                     )
+
+                    log_gpu_memory_usage(f"update_policy: epoch {epoch_idx} mini_batch {batch_idx} micro_batch {micro_batch_idx} after forward", logger=logger)
 
                     # for fully_async_policy recipe
                     if hasattr(self.config, "use_rollout_log_probs") and self.config.use_rollout_log_probs:
@@ -509,6 +528,8 @@ class DataParallelPPOActor(BasePPOActor):
                         micro_batch_metrics["actor/kl_loss"] = kl_loss.detach().item() * loss_scale_factor
                         micro_batch_metrics["actor/kl_coef"] = self.config.kl_loss_coef
 
+                    log_gpu_memory_usage(f"update_policy: epoch {epoch_idx} mini_batch {batch_idx} micro_batch {micro_batch_idx} after loss compute", logger=logger)
+
                     if self.config.use_dynamic_bsz:
                         # relative to the dynamic bsz
                         loss = policy_loss * loss_scale_factor
@@ -519,11 +540,20 @@ class DataParallelPPOActor(BasePPOActor):
                     else:
                         loss.backward()
 
+                    log_gpu_memory_usage(f"update_policy: epoch {epoch_idx} mini_batch {batch_idx} micro_batch {micro_batch_idx} after backward", logger=logger)
+
                     micro_batch_metrics["actor/pg_loss"] = pg_loss.detach().item() * loss_scale_factor
                     append_to_dict(metrics, micro_batch_metrics)
+
+                log_gpu_memory_usage(f"update_policy: epoch {epoch_idx} mini_batch {batch_idx} before optimizer step", logger=logger)
 
                 grad_norm = self._optimizer_step()
                 mini_batch_metrics = {"actor/grad_norm": grad_norm.detach().item()}
                 append_to_dict(metrics, mini_batch_metrics)
+
+                log_gpu_memory_usage(f"update_policy: epoch {epoch_idx} mini_batch {batch_idx} after optimizer step", logger=logger)
+
+        log_gpu_memory_usage("update_policy: before final zero_grad", logger=logger)
         self.actor_optimizer.zero_grad()
+        log_gpu_memory_usage("update_policy: end", logger=logger)
         return metrics

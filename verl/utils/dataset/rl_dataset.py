@@ -31,6 +31,10 @@ from transformers import PreTrainedTokenizer, ProcessorMixin
 
 import verl.utils.torch_functional as verl_F
 from verl.utils.model import compute_position_id_with_mask
+from verl.utils.dataset.templates import get_message_template
+from verl.utils.dataset.vision_utils import extract_frames, compute_target_size
+
+from PIL import Image
 
 logger = logging.getLogger(__name__)
 
@@ -269,13 +273,23 @@ class RLHFDataset(Dataset):
     def _build_messages(self, example: dict):
         messages: list = example.pop(self.prompt_key)
 
-        if self.image_key in example or self.video_key in example:
+        message_template_name = self.config.message_template
+        apply_message_template = get_message_template(message_template_name)
+        messages = apply_message_template(messages, config=self.config, **example)
+
+        # Check if we need to process multimodal placeholders
+        has_multimodal = False
+        if "multi_modal_data" in example:
+            has_multimodal = "image" in example["multi_modal_data"] or "video" in example["multi_modal_data"]
+        else:
+            # Backward compatibility: check the original keys
+            has_multimodal = self.image_key in example or self.video_key in example
+
+        if has_multimodal:
             for message in messages:
                 content = message["content"]
                 content_list = []
-                segments = re.split("(<image>|<video>)", content)
-                segments = [item for item in segments if item != ""]
-                for segment in segments:
+                for segment in re.split("(<image>|<video>)", content):
                     if segment == "<image>":
                         content_list.append({"type": "image"})
                     elif segment == "<video>":
@@ -292,25 +306,74 @@ class RLHFDataset(Dataset):
         Note that we also return the raw_input_ids so that it can be combined with other chat template
         """
         row_dict: dict = self.dataframe[item]
-        messages = self._build_messages(row_dict)
         model_inputs = {}
 
         if self.processor is not None:
-            from verl.utils.dataset.vision_utils import process_image, process_video
-
-            raw_prompt = self.processor.apply_chat_template(
-                messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
+            from verl.utils.dataset.vision_utils import (
+                process_image,
+                process_raw_image,
+                process_video,
             )
+
+            images_pil = None
+
+            enable_dynamic_reading = self.config.media_reading_kwargs.enable
+            if enable_dynamic_reading:
+                media_reading_kwargs = self.config.media_reading_kwargs
+                assert (
+                    media_reading_kwargs.sampling_mode == "uniform"
+                ), "Only uniform sampling mode is supported for now"
+
+                size = media_reading_kwargs.size
+
+                if "video_path" in row_dict:
+                    num_frames = media_reading_kwargs.num_frames
+
+                    video_path = row_dict["video_path"]
+                    if self.config.media_dir is not None:
+                        video_path = os.path.join(self.config.media_dir, video_path)
+
+                    images_pil, frame_indices = extract_frames(
+                        video_path=video_path,
+                        num_frames=num_frames,
+                        size=size,
+                    )
+                elif "image_path" in row_dict:
+                    image_path = row_dict["image_path"]
+                    if self.config.media_dir is not None:
+                        image_path = os.path.join(self.config.media_dir, image_path)
+                    image_pil = Image.open(image_path).convert("RGB")
+                    width, height = image_pil.size
+                    target_size = compute_target_size(
+                        width=width, height=height, size=size
+                    )
+                    if width != target_size[0] or height != target_size[1]:
+                        image_pil = image_pil.resize(target_size)
+                    images_pil = [image_pil.convert("RGB")]
+                else:
+                    raise ValueError(
+                        f"Neither video_path nor image_path found in row_dict: {row_dict.keys()}"
+                    )
+
+                row_dict[self.image_key] = images_pil
+
+            assert (
+                row_dict.get(self.image_key) is not None or not enable_dynamic_reading
+            ), f"images_pil is None, row_dict keys: {row_dict.keys()}"
+
             multi_modal_data = {}
+            origin_multi_modal_data = {}
 
             images = None
             row_dict_images = row_dict.pop(self.image_key, None)
             if row_dict_images:
                 images = [process_image(image, image_patch_size=self.image_patch_size) for image in row_dict_images]
+                origin_images = [process_raw_image(image) for image in row_dict_images]
 
                 # due to the image key is "image" instead of "images" in vllm, we need to use "image" here
                 # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
                 multi_modal_data["image"] = images
+                origin_multi_modal_data["image"] = origin_images
 
             videos = None
             videos_kwargs = {}
@@ -333,6 +396,15 @@ class RLHFDataset(Dataset):
                     (video.numpy(), metadata) for video, metadata in zip(videos, video_metadata, strict=True)
                 ]
 
+            # Store multi_modal_data in row_dict before calling _build_messages
+            row_dict["multi_modal_data"] = multi_modal_data
+            row_dict["origin_multi_modal_data"] = origin_multi_modal_data
+
+            messages = self._build_messages(row_dict)
+            raw_prompt = self.processor.apply_chat_template(
+                messages, add_generation_prompt=True, tokenize=False, **self.apply_chat_template_kwargs
+            )
+
             model_inputs = self.processor(
                 text=[raw_prompt], images=images, videos=videos, videos_kwargs=videos_kwargs, return_tensors="pt"
             )
@@ -344,7 +416,7 @@ class RLHFDataset(Dataset):
                 model_inputs.pop("second_per_grid_ts")
 
             # There's a trap here, multi_modal_inputs has to be a dict, not BatchFeature
-            row_dict["multi_modal_data"] = multi_modal_data
+            # multi_modal_data and origin_multi_modal_data already stored above before _build_messages
 
             # We will do batch.union() in the trainer,
             # so we cannot have "multi_modal_inputs" in row_dict if rollout generates new multi_modal_inputs
@@ -355,6 +427,12 @@ class RLHFDataset(Dataset):
                 row_dict["multi_modal_inputs"].pop("second_per_grid_ts", None)
 
         else:
+            # For non-processor case, create empty multi_modal_data for _build_messages
+            row_dict["multi_modal_data"] = {}
+            row_dict["origin_multi_modal_data"] = {}
+
+            messages = self._build_messages(row_dict)
+
             if self.apply_chat_template_kwargs.get("chat_template") is None:
                 assert hasattr(self.tokenizer, "chat_template"), (
                     "chat_template should be provided in apply_chat_template_kwargs or tokenizer config, "
@@ -448,9 +526,31 @@ class RLHFDataset(Dataset):
         if need_tools_kwargs and not tools_kwargs:
             logger.warning("tools_kwargs is empty for index {}, data source: {}", index, row_dict["data_source"])
         row_dict["index"] = index
-        row_dict["tools_kwargs"] = tools_kwargs
+        row_dict["tools_kwargs"] = self._resolve_tools_kwargs_paths(tools_kwargs)
         row_dict["interaction_kwargs"] = interaction_kwargs
         return row_dict
+
+    def _resolve_tools_kwargs_paths(self, tools_kwargs: dict) -> dict:
+        """Resolve relative video paths inside tools_kwargs using media_dir."""
+        if not tools_kwargs:
+            return tools_kwargs
+
+        media_dir = getattr(self.config, "media_dir", None)
+        if not media_dir:
+            return tools_kwargs
+
+        resolved_kwargs = copy.deepcopy(tools_kwargs)
+        for tool_cfg in resolved_kwargs.values():
+            if not isinstance(tool_cfg, dict):
+                continue
+            create_kwargs = tool_cfg.get("create_kwargs")
+            if not isinstance(create_kwargs, dict):
+                continue
+            video_path = create_kwargs.get("video_path")
+            if not video_path or os.path.isabs(video_path):
+                continue
+            create_kwargs["video_path"] = os.path.join(media_dir, video_path)
+        return resolved_kwargs
 
     def __getstate__(self):
         if not self.serialize_dataset:

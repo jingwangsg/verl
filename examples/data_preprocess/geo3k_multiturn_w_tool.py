@@ -64,6 +64,7 @@ if __name__ == "__main__":
             answer = example.pop("answer")
             images = example.pop("images")
             data = {
+                "agent_name": "tool_agent",
                 "data_source": data_source,
                 "prompt": [
                     {

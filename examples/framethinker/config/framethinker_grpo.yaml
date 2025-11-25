@@ -1,0 +1,101 @@
+# FrameThinker GRPO Training Configuration
+# Uses ToolAgentLoop with VideoThinkTool for interactive video reasoning
+
+hydra:
+  searchpath:
+    - file://verl/trainer/config
+
+defaults:
+  - ppo_trainer
+  - _self_
+
+# Data configuration
+data:
+  max_prompt_length: 8192
+  max_response_length: 8192
+  train_batch_size: 32
+  return_raw_chat: True
+  filter_overlong_prompts: False
+  dataloader_num_workers: 8
+  message_template: framethinker_default
+  media_dir: /mnt/amlfs-02/shared/datasets/s3/video_reason/
+
+# Algorithm configuration (GRPO with zero KL)
+algorithm:
+  adv_estimator: grpo
+  kl_ctrl:
+    kl_coef: 0.0
+  use_kl_in_reward: False
+
+# Actor, Rollout, Reference model configuration
+actor_rollout_ref:
+  hybrid_engine: True
+
+  # Model configuration
+  model:
+    use_remove_padding: True
+    enable_gradient_checkpointing: False
+
+  # Actor training configuration
+  actor:
+    optim:
+      lr: 1e-6
+    ppo_mini_batch_size: 32
+    ppo_micro_batch_size_per_gpu: 2
+    use_kl_loss: False
+    kl_loss_coef: 0
+    kl_loss_type: low_var_kl
+    entropy_coeff: 0.0
+    ulysses_sequence_parallel_size: 1
+    fsdp_config:
+      param_offload: True
+      optimizer_offload: True
+
+  # Rollout configuration (vLLM with multi-turn)
+  rollout:
+    name: vllm
+    n: 8
+    tensor_model_parallel_size: 2
+    log_prob_micro_batch_size_per_gpu: 2
+    max_num_batched_tokens: 32768
+    gpu_memory_utilization: 0.6
+    enforce_eager: False
+    free_cache_engine: False
+    enable_chunked_prefill: False
+
+    # Multi-turn agent loop configuration
+    multi_turn:
+      enable: True
+      max_assistant_turns: 5
+      max_user_turns: 20
+      max_parallel_calls: 1
+      format: think_with_video
+      max_tool_response_length: 4096
+      tool_response_truncate_side: middle
+      tool_response_role: user
+
+  # Reference model configuration
+  ref:
+    log_prob_micro_batch_size_per_gpu: 2
+    fsdp_config:
+      param_offload: True
+
+# Trainer configuration
+trainer:
+  critic_warmup: 0
+  logger: '["console","wandb"]'
+  n_gpus_per_node: 8
+  nnodes: 2
+  save_freq: 5
+  val_before_train: False
+  test_freq: 50
+  total_epochs: 10
+
+# Custom reward function (think_with_video_reward)
+custom_reward_function:
+  path: verl/utils/reward_score/think_with_video_reward.py
+  name: compute_score
+  reward_kwargs:
+    nframes: 8
+    lambda_gfn: 0.2
+    lambda_cf: 0.0

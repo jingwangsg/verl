@@ -19,6 +19,54 @@ import torch
 from PIL import Image
 from qwen_vl_utils import fetch_image, fetch_video
 
+# for dynamic video frame extraction
+import numpy as np
+from einops import rearrange
+from torchvision.transforms import Resize
+from torchcodec.decoders import VideoDecoder
+
+
+def compute_target_size(width: int, height: int, size: int) -> tuple[int, int]:
+    """
+    Compute target size for video frame resizing.
+    """
+    if width > height:
+        return size, int(size * height / width)
+    else:
+        return int(size * width / height), size
+
+
+def extract_frames(video_path: str, num_frames: int = 8, size: int = 360) -> list[dict]:
+    decoder = VideoDecoder(video_path, num_ffmpeg_threads=0)
+    total_frames = decoder.metadata.num_frames
+
+    # Calculate frame indices (evenly spaced, excluding last frame)
+    frame_indices = np.linspace(0, total_frames - 1, num_frames, dtype=int).tolist()
+
+    try:
+        frames = decoder.get_frames_at(frame_indices).data
+    except Exception as e:
+        print(f"Error extracting frames from {video_path}: {e}")
+        raise e
+    frames = Resize(size)(frames)
+    frames = rearrange(frames, "t c h w -> t h w c").cpu().numpy()
+
+    frames_pil = [Image.fromarray(frame) for frame in frames]
+
+    return frames_pil, frame_indices
+
+
+def process_raw_image(image: dict):
+    from PIL import Image
+    from io import BytesIO
+
+    if isinstance(image, dict):
+        image = Image.open(BytesIO(image["bytes"]))
+
+    if isinstance(image, Image.Image):
+        return image.convert("RGB")
+    return image
+
 
 def process_image(image: dict | Image.Image, image_patch_size: int = 14) -> Image.Image:
     if isinstance(image, Image.Image):

@@ -13,6 +13,9 @@ train_files: ~/data/rlhf/gsm8k/train.parquet
 # Validation parquet. Can be a list or a single file.
 val_files: ~/data/rlhf/gsm8k/test.parquet
 
+# Directory containing media files (images/videos). Used as base path for dynamic media reading.
+media_dir: null
+
 # Maximum sample length to be used.
 # Set to -1 to use full dataset, otherwise, randomly
 # select the specified number of samples from train dataset
@@ -54,6 +57,10 @@ return_raw_input_ids: False
 
 # Whether to return the original chat (prompt) without applying chat template.
 return_raw_chat: False
+
+# Message template to use for formatting prompts.
+# Options: default (passthrough), videor1, framethinker_default, framethinker_add_zoomin.
+message_template: default
 
 # Whether to return the full prompt with chat template.
 return_full_prompt: False
@@ -129,3 +136,15 @@ datagen:
 
 # Additional kwargs when calling tokenizer.apply_chat_template
 apply_chat_template_kwargs: {}
+
+# Configuration for dynamic media (video/image) reading at runtime.
+# If not specified (null), media will be read from pre-extracted data in the dataset.
+media_reading_kwargs:
+  # Whether to enable dynamic media reading. Set to true to read videos/images at runtime.
+  enable: false
+  # Sampling mode for extracting frames from videos. Currently only 'uniform' is supported.
+  sampling_mode: uniform
+  # Number of frames to extract from each video.
+  num_frames: 8
+  # Target size (longest edge) for resizing frames/images.
+  size: 360

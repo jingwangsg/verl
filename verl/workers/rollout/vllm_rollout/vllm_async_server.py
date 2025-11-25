@@ -284,7 +284,11 @@ class vLLMHttpServerBase:
                     server_args.append(f"--{k}")
             else:
                 server_args.append(f"--{k}")
-                server_args.append(str(v))
+                if isinstance(v, (dict, list)):
+                    # Structured values must be JSON-serialized for the CLI parser
+                    server_args.append(json.dumps(v))
+                else:
+                    server_args.append(str(v))
 
         if self.replica_rank == 0:
             pprint(server_args)

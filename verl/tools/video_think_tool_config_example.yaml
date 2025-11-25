@@ -1,0 +1,60 @@
+# Example configuration for VideoThinkTool
+# This shows how to configure the video_think_tool in your agent loop config
+
+# Tool definition
+tools:
+  - name: video_think
+    class: verl.tools.VideoThinkTool
+    config:
+      max_workers: 4          # Number of worker threads for async operations
+      timeout: 30             # Timeout for operations in seconds
+
+    # OpenAI tool schema for the tool
+    # Note: The tool uses regex parsing internally, but this schema is used for registration
+    tool_schema:
+      type: function
+      function:
+        name: video_think
+        description: |
+          Interactive video exploration tool for frame-level analysis.
+          Supports getting frame numbers from timestamps, zooming in on specific frames,
+          and selecting frame ranges for analysis.
+        parameters:
+          type: object
+          properties:
+            action_string:
+              type: string
+              description: |
+                The action to perform. Supported formats:
+                1. "get frame number at time MM:SS" - Convert timestamp to frame number
+                2. "zoom in frame <FRAME_INDEX>" - Extract high-res single frame (360px)
+                3. "choose frames between <START> and <END>" - Sample 8-12 frames from range (256px)
+          required:
+            - action_string
+
+# Agent loop configuration
+agent_loop:
+  # not used, just for clarity
+  type: tool_agent_loop 
+
+  max_user_turns: 20
+  max_assistant_turns: 20
+  max_parallel_calls: 4
+
+  # IMPORTANT: For compatibility with original think_with_video format,
+  # set tool_response_role to "user" (default is "tool")
+  # Original format: tool responses appear as user messages
+  tool_response_role: user  # Options: "user" | "tool"
+
+# Example usage in create_kwargs when initializing a trajectory:
+# create_kwargs:
+#   video_path: "/path/to/video.mp4"
+#   fps: 30
+#   total_frames: 9000
+#   width: 1920
+#   height: 1080
+
+# Example action strings that the model should generate:
+# 1. get frame number at time 01:30
+# 2. zoom in frame 450
+# 3. choose frames between 100 and 500

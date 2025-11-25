@@ -159,3 +159,58 @@ class GptOssToolParser(ToolParser):
         content = regex.sub(self.tool_call_pattern, "", text)
 
         return content, function_calls
+
+
+@ToolParser.register("think_with_video")
+class ThinkWithVideoToolParser(ToolParser):
+    """Parse FrameThinker-style <action> tags into tool calls.
+
+    This parser is intended for backward compatibility with the original
+    FrameThinker trajectories where models output reasoning inside
+    ``<think>`` blocks followed by ``<action>`` blocks instead of OpenAI
+    function call annotations. Whenever an ``<action>`` block does not start
+    with ``output answer:``, it is treated as a call to the VideoThink tool.
+    """
+
+    def __init__(self, tokenizer) -> None:
+        super().__init__(tokenizer)
+        self.action_pattern = regex.compile(r"<action>(.*?)</action>", regex.DOTALL | regex.IGNORECASE)
+        self.answer_pattern = regex.compile(r"^\s*output answer\s*:", regex.IGNORECASE)
+        self.tool_name = os.getenv("VERL_GPT_PARSER_TOOL_NAME", "video_think")
+
+    def _is_final_answer(self, action: str) -> bool:
+        return bool(self.answer_pattern.match(action))
+
+    @rollout_trace_op
+    async def extract_tool_calls(self, responses_ids: list[int]) -> tuple[str, list[FunctionCall]]:
+        loop = asyncio.get_running_loop()
+        text = await loop.run_in_executor(None, self.tokenizer.decode, responses_ids)
+
+        function_calls: list[FunctionCall] = []
+        content_parts: list[str] = []
+        last_end = 0
+
+        for match in self.action_pattern.finditer(text):
+            start, end = match.span()
+            content_parts.append(text[last_end:start])
+            action_text = match.group(1).strip()
+            if not action_text:
+                # Keep empty tags untouched in the final content
+                content_parts.append(match.group(0))
+            elif self._is_final_answer(action_text):
+                # Final answers stay in the content stream
+                content_parts.append(match.group(0))
+            else:
+                try:
+                    arguments = json.dumps({"action_string": action_text}, ensure_ascii=False)
+                    function_calls.append(FunctionCall(name=self.tool_name, arguments=arguments))
+                except Exception as e:
+                    logger.error(f"Failed to encode FrameThinker action '{action_text}': {e}")
+                    # Preserve the original text to avoid losing information
+                    content_parts.append(match.group(0))
+            last_end = end
+
+        content_parts.append(text[last_end:])
+        content = "".join(content_parts)
+
+        return content, function_calls

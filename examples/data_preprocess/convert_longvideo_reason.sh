@@ -1,0 +1,5 @@
+python scripts/convert_to_rl_parquet.py /mnt/amlfs-02/shared/datasets/s3/video_reason/LongVideoReason/train_mcq_10k.json --num-frames 8 --media-dir /mnt/amlfs-02/shared/datasets/s3/video_reason/ -o /mnt/amlfs-02/shared/datasets/s3/video_reason/LongVideoReason/train_mcq_10k.parquet --data-source LongVideo-Reason
+
+python scripts/convert_to_rl_parquet.py /mnt/amlfs-02/shared/datasets/s3/video_reason/LongVideoReason/train_mcq_3k.json --num-frames 8 --media-dir /mnt/amlfs-02/shared/datasets/s3/video_reason/ -o /mnt/amlfs-02/shared/datasets/s3/video_reason/LongVideoReason/train_mcq_3k.parquet --data-source LongVideo-Reason
+
+python scripts/convert_to_rl_parquet.py /mnt/amlfs-02/shared/datasets/s3/video_reason/LongVideoReason/test.json --num-frames 8 --media-dir /mnt/amlfs-02/shared/datasets/s3/video_reason/ -o /mnt/amlfs-02/shared/datasets/s3/video_reason/LongVideoReason/test.parquet --data-source LongVideo-Reason

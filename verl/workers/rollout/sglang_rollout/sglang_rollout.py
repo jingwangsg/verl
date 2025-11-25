@@ -456,6 +456,8 @@ class SGLangRollout(BaseRollout):
                 "nnodes": nnodes,
                 "trust_remote_code": trust_remote_code,
                 "max_running_requests": max_running_requests,
+                # prevent fp16 error
+                # "triton_attention_reduce_in_fp32": True,
                 # NOTE(linjunrong): add rank to prevent SGLang generate same port inside PortArgs.init_new
                 # when random.seed is being set during training
                 "port": sglang_port,
