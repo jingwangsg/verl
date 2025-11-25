@@ -22,6 +22,8 @@ TOOL_CONFIG_PATH="$PROJECT_DIR/recipe/framethinker/video_think_tool_config.yaml"
 
 # Debug configuration: minimal resources
 PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
+    --config-path="examples/sglang_multiturn/config" \
+    --config-name="think_with_video" \
     "data.train_files=[${TRAIN_FILES}]" \
     "data.val_files=[${VAL_FILES}]" \
     data.train_batch_size=8 \
