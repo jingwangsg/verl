@@ -1,0 +1,21 @@
+#!/bin/bash
+FILE_SYSTEM=$(df -h | grep /mnt/ | awk '{print $6}' | grep -v /home/ | sort | head -n 1)
+echo $FILE_SYSTEM
+
+if [[ "$FILE_SYSTEM" == *"/aws-lfs-01/"* ]]; then
+    export HOME=/mnt/aws-lfs-01/shared/jingwang/
+elif [[ "$FILE_SYSTEM" == *"/amlfs-04/"* ]]; then
+    export HOME=/mnt/amlfs-04/home/jingwang/
+elif [[ "$FILE_SYSTEM" == *"/amlfs-01/"* ]]; then
+    export HOME=/mnt/amlfs-03/shared/jingwang/
+elif [[ "$FILE_SYSTEM" == *"/lfs/"* ]]; then
+    export HOME=/mnt/lfs/home/jingwang/
+else
+    echo "HOME directory not found"
+fi
+export TERM=xterm-256color
+export WANDB_MODE=disabled
+$HOME/homebrew/bin/resize
+# su - jingwang
+cd $HOME
+exec bash

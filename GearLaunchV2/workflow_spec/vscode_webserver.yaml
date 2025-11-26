@@ -1,0 +1,29 @@
+#####################################################################################
+# Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
+#
+# NVIDIA CORPORATION and its licensors retain all intellectual property
+# and proprietary rights in and to this software, related documentation
+# and any modifications thereto. Any use, reproduction, disclosure or
+# distribution of this software and related documentation without an express
+# license agreement from NVIDIA CORPORATION is strictly prohibited.
+#####################################################################################
+
+workflow:
+  name: vscode
+  resources:
+    default:
+      cpu: 2
+      memory: 6Gi
+      storage: 1Gi
+  tasks:
+    - args:
+        - /tmp/entry.sh
+      command:
+        - /bin/bash
+      files:
+        - contents: |-
+            curl -fsSL https://code-server.dev/install.sh | bash
+            code-server --port 9000 --auth none # /path/to/your/directory (optional)
+          path: /tmp/entry.sh
+      image: nvcr.io/nvidia/pytorch:23.10-py3@sha256:37dbdcf2ee55b570ab855161ab7c48184f83df81da5640d9ea6c3dd2b4418875
+      name: webserver

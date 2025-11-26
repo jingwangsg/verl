@@ -37,7 +37,7 @@ def compute_score(
     nframes: int = 8,
     lambda_gfn: float = 0.5,
     lambda_cf: float = 0.02,
-    lambda_zoom: float = 0.1,
+    alpha_zoom: float = 0.1,
     **kwargs
 ) -> Dict[str, float]:
     """
@@ -331,7 +331,7 @@ def compute_score(
 
         # Bonus: zoom usage
         if zoom_used:
-            other_score += lambda_zoom
+            other_score += alpha_zoom
 
     total_score = acc_score + other_score
 

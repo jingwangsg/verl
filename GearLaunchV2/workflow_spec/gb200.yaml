@@ -1,0 +1,57 @@
+version: 2
+workflow:
+  groups:
+  - name: webserver
+    tasks:
+    - args:
+      - /tmp/entry.sh
+      command:
+      - bash
+      environment:
+        ACCEPT_EULA: Y
+        NO_NUCLEUS: Y
+      files:
+      - contents: |-
+          apt-get update && apt-get install -y \
+          openssh-server \
+          sudo \
+          && rm -rf /var/lib/apt/lists/*
+          mkdir /var/run/sshd
+
+          # Modify existing sshd_config
+          SSHD_CONFIG="/etc/ssh/sshd_config"
+          sed -i 's/#\?Port .*/Port 22/' "$SSHD_CONFIG"
+          sed -i 's/#\?ListenAddress .*/ListenAddress 0.0.0.0/' "$SSHD_CONFIG"
+          sed -i 's/#\?PermitRootLogin .*/PermitRootLogin yes/' "$SSHD_CONFIG"
+          sed -i 's/#\?PasswordAuthentication .*/PasswordAuthentication yes/' "$SSHD_CONFIG"
+          sed -i 's/#\?PermitEmptyPasswords .*/PermitEmptyPasswords yes/' "$SSHD_CONFIG"
+          sed -i 's/#\?UsePAM .*/UsePAM no/' "$SSHD_CONFIG"
+          sed -i 's/#\?ChallengeResponseAuthentication .*/ChallengeResponseAuthentication no/' "$SSHD_CONFIG"
+
+          # Debug output to verify settings
+          echo "=== Password Verification ==="
+          echo "Root password status:"
+          passwd -S root
+          echo "=== SSHD Config ==="
+          grep -E "^(Port|ListenAddress|PermitRootLogin|PasswordAuthentication|PermitEmptyPasswords|UsePAM|ChallengeResponseAuthentication)" "$SSHD_CONFIG"
+
+          # Explicitly set empty password for root for SSH access
+          passwd -d root
+
+          # Start SSH daemon normally
+          /usr/sbin/sshd -D
+        path: /tmp/entry.sh
+      image: nvcr.io/nvidian/gear-gb200-train:latest
+      lead: true
+      name: master
+  name: ssh-job_uuid_a076
+  resources:
+    default:
+      cpu: 120
+      gpu: 4
+      memory: 800Gi
+      platform: gb200
+      storage: 1000Gi
+  timeout:
+    exec_timeout: 7d
+    queue_timeout: null

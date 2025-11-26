@@ -76,6 +76,7 @@ from verl.utils.seqlen_balancing import (
 )
 from verl.utils.torch_functional import masked_mean
 from verl.utils.tracking import ValidationGenerationsLogger
+# from debug.snapshot import Snapshot
 
 
 @dataclass
@@ -1176,6 +1177,9 @@ class RayPPOTrainer:
         to construct the PPO dataflow.
         The light-weight advantage computation is done on the driver process.
         """
+        # scope = "ray_trainer/fit/"
+        # snp = lambda name: Snapshot(f"{scope}/{name}", subsys=scope)
+
         from omegaconf import OmegaConf
 
         from verl.utils.tracking import Tracking
@@ -1610,3 +1614,6 @@ class RayPPOTrainer:
                 if hasattr(self.train_dataset, "on_batch_end"):
                     # The dataset may be changed after each training batch
                     self.train_dataset.on_batch_end(batch=batch)
+        
+                # snp("batch").snapshot(batch)
+                # snp("metrics").snapshot(metrics)

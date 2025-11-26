@@ -89,7 +89,7 @@ from verl.workers.config import FSDPCriticConfig, FSDPEngineConfig, HFModelConfi
 from verl.workers.config.optimizer import build_optimizer
 from verl.workers.rollout import get_rollout_class
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
-from debug.snapshot import Snapshot
+# from debug.snapshot import Snapshot
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))

@@ -81,6 +81,9 @@ class AgentData:
         self.tool_rewards: list[float] = []
         self.user_turns = 0
         self.assistant_turns = 0
+        self.tool_call_count_total = 0
+        self.tool_call_counts_by_tool: dict[str, int] = {}
+        self.tool_call_counts_by_action: dict[str, int] = {}
 
         # Temporary state for tool calls
         self.tool_calls: list[FunctionCall] = []
@@ -226,7 +229,11 @@ class ToolAgentLoop(AgentLoopBase):
             ),
             num_turns=agent_data.user_turns + agent_data.assistant_turns + 1,
             metrics=agent_data.metrics,
-            extra_fields={},
+            extra_fields={
+                "tool_call_counts": agent_data.tool_call_count_total,
+                "tool_call_counts_per_tool": dict(agent_data.tool_call_counts_by_tool),
+                "tool_call_counts_per_action": dict(agent_data.tool_call_counts_by_action),
+            },
         )
 
         output.extra_fields.update(
@@ -350,15 +357,25 @@ class ToolAgentLoop(AgentLoopBase):
             tasks.append(self._call_tool(tool_call, agent_data.tools_kwargs))
             tool_call_names.append(tool_call.name)
 
+        # Track tool call statistics for this episode
+        agent_data.tool_call_count_total += len(tool_call_names)
+        for name in tool_call_names:
+            agent_data.tool_call_counts_by_tool[name] = agent_data.tool_call_counts_by_tool.get(name, 0) + 1
+
         with simple_timer("tool_calls", agent_data.metrics):
             responses = await asyncio.gather(*tasks)
 
         # Process tool responses and update multi_modal_data
         # Removed: agent_data.new_images_this_turn = []
-        for tool_response, tool_reward, _ in responses:
+        for tool_response, tool_reward, res in responses:
             add_messages = [
                 {"role": self.tool_response_role, "content": tool_response.content}
             ]
+            action_type = res.get("action_type") if isinstance(res, dict) else None
+            if action_type:
+                agent_data.tool_call_counts_by_action[action_type] = (
+                    agent_data.tool_call_counts_by_action.get(action_type, 0) + 1
+                )
 
             # Handle image data
             if tool_response.image:

@@ -2,7 +2,7 @@
 # FrameThinker Debug Training Script
 # Minimal configuration for testing the training setup
 # Uses very small batch sizes and limited data for quick validation
-swanlab login --api-key iPPnOFirR3dXCBgOBPqiB
+swanlab login --api-key <api_key>
 
 set -x
 ulimit -n 65535
@@ -25,7 +25,7 @@ SAVE_CHECKPOINT_DIR=${SAVE_CHECKPOINT_DIR:-$PROJECT_DIR/checkpoints/video_reason
 
 # Hyperparams
 DTYPE=float16
-MODEL_DTYPE=float16
+MODEL_DTYPE=fp32
 
 # Debug configuration: minimal resources
 PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
