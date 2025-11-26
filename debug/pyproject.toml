@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "debug"
+version = "0.1.0"
+description = "Lightweight snapshot helper for debugging."
+requires-python = ">=3.10"
+dependencies = ["dill", "ipdb"]
+authors = [{name = "GEAR", email = "gear@gear.com"}]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+[project.scripts]
+restore = "debug.cli:restore_cli"
+restore_cls = "debug.cli:restore_cls_cli"
+restore_args = "debug.cli:restore_args_cli"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+exclude = [
+    "*.tests",
+    "*.tests.*",
+    "tests.*",
+    "tests",
+    "docs*",
+    "scripts*",
+]
