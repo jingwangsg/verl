@@ -2,30 +2,29 @@
 # FrameThinker Debug Training Script
 # Minimal configuration for testing the training setup
 # Uses very small batch sizes and limited data for quick validation
-swanlab login --api-key iPPnOFirR3dXCBgOBPqiB
 
 set -x
-ulimit -n 65535
 
-# Get absolute path to project root
-PROJECT_DIR="$(pwd)"
-CONFIG_PATH="$PROJECT_DIR/recipe/framethinker/config"
-TOOL_CONFIG_PATH="$CONFIG_PATH/video_think_tool_config.yaml"
+# Data and model paths
+BASE_DATA_DIR=/mnt/amlfs-02/shared/datasets/s3/video_reason/Video-Holmes
+PROJECT_NAME=video_holmes_rl
+EXP_NAME=${EXP_NAME:-framethinker_debug}
+SAVE_CHECKPOINT_DIR=/mnt/amlfs-02/shared/datasets/checkpoints/jingwang/video_reason/
+CKPT_FULL=/mnt/amlfs-02/shared/checkpoints/jingwang/video_reason/sft/qwen2_5vl_7b_full_framethinker_sft
+MODEL_PATH=${MODEL_PATH:-$CKPT_FULL}
 
-# Data paths (can be overridden with environment variables)
-TRAIN_FILES=${TRAIN_FILES:-$PROJECT_DIR/data/video_reason/Video-Holmes/train.parquet}
-VAL_FILES=${VAL_FILES:-$PROJECT_DIR/data/video_reason/Video-Holmes/test.parquet}
-MEDIA_DIA=${MEDIA_DIA:-$PROJECT_DIR/data/video_reason/}
+# Use migrated datasets with tools_kwargs
+TRAIN_FILES=${TRAIN_FILES:-/mnt/amlfs-02/shared/datasets/s3/video_reason/Video-Holmes/train.parquet}
+VAL_FILES=${VAL_FILES:-/mnt/amlfs-02/shared/datasets/s3/video_reason/Video-Holmes/test.parquet}
 
-# Model and save paths
-MODEL_PATH=${MODEL_PATH:-$PROJECT_DIR/model_weights/Qwen2.5-VL-7B-Instruct}
-PROJECT_NAME=${PROJECT_NAME:-video_holmes_verl}
-EXP_NAME=${EXP_NAME:-framethinker_verl_debug}
-SAVE_CHECKPOINT_DIR=${SAVE_CHECKPOINT_DIR:-$PROJECT_DIR/checkpoints/video_reason/}
-
-# Hyperparams
-DTYPE=float16
-MODEL_DTYPE=float16
+# Resolve tool config (needed for registering video_think)
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+TOOL_CONFIG_PATH="${TOOL_CONFIG_PATH:-$PROJECT_DIR/recipe/framethinker/video_think_tool_config.yaml}"
+if [ ! -f "$TOOL_CONFIG_PATH" ]; then
+    echo "Missing tool config: $TOOL_CONFIG_PATH"
+    echo "Make sure recipe/framethinker/video_think_tool_config.yaml exists or set TOOL_CONFIG_PATH"
+    exit 1
+fi
 
 # Debug configuration: minimal resources
 PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
@@ -34,7 +33,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     data.train_batch_size=32 \
     data.max_prompt_length=8192 \
     data.max_response_length=8192 \
-    data.media_dir=${MEDIA_DIA} \
+    data.media_dir=/mnt/amlfs-02/shared/datasets/s3/video_reason/ \
     data.return_raw_chat=True \
     data.filter_overlong_prompts=False \
     data.dataloader_num_workers=8 \
@@ -57,49 +56,41 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=1 \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
-    actor_rollout_ref.actor.fsdp_config.dtype=$DTYPE \
-    actor_rollout_ref.actor.fsdp_config.model_dtype=$MODEL_DTYPE \
-    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=2 \
-    actor_rollout_ref.ref.fsdp_config.param_offload=True \
-    actor_rollout_ref.ref.fsdp_config.dtype=$DTYPE \
-    actor_rollout_ref.ref.fsdp_config.model_dtype=$MODEL_DTYPE \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=2 \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=4 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.mode=async \
-    actor_rollout_ref.rollout.n=8 \
-    actor_rollout_ref.rollout.max_num_batched_tokens=32768 \
+    actor_rollout_ref.rollout.n=1 \
+    actor_rollout_ref.rollout.max_num_batched_tokens=8192 \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
     actor_rollout_ref.rollout.limit_images=128 \
-    actor_rollout_ref.rollout.dtype=$DTYPE \
-    actor_rollout_ref.rollout.calculate_log_probs=True \
+    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=2 \
+    actor_rollout_ref.ref.fsdp_config.param_offload=True \
     actor_rollout_ref.rollout.multi_turn.enable=True \
     actor_rollout_ref.rollout.multi_turn.tool_config_path=${TOOL_CONFIG_PATH} \
     actor_rollout_ref.rollout.multi_turn.max_assistant_turns=5 \
     actor_rollout_ref.rollout.multi_turn.max_user_turns=5 \
-    actor_rollout_ref.rollout.multi_turn.max_parallel_calls=8 \
+    actor_rollout_ref.rollout.multi_turn.max_parallel_calls=1 \
     actor_rollout_ref.rollout.multi_turn.format=think_with_video \
     actor_rollout_ref.rollout.multi_turn.max_tool_response_length=2048 \
     actor_rollout_ref.rollout.multi_turn.tool_response_truncate_side=middle \
     actor_rollout_ref.rollout.multi_turn.tool_response_role=user \
     trainer.critic_warmup=0 \
-    trainer.logger='["console","swanlab"]' \
+    trainer.logger='["console","wandb"]' \
     trainer.n_gpus_per_node=8 \
-    trainer.nnodes=1 \
-    trainer.save_freq=20 \
-    trainer.max_actor_ckpt_to_keep=5 \
+    trainer.nnodes=2 \
+    trainer.save_freq=50 \
     trainer.val_before_train=False \
-    trainer.test_freq=20 \
+    trainer.test_freq=50 \
     trainer.project_name=${PROJECT_NAME} \
     trainer.experiment_name=${EXP_NAME} \
     trainer.default_local_dir=${SAVE_CHECKPOINT_DIR}/${PROJECT_NAME}/${EXP_NAME} \
     +trainer.tensorboard_dir=${SAVE_CHECKPOINT_DIR}/logs/tensorboard \
     +trainer.rl_logging_board_dir=${SAVE_CHECKPOINT_DIR}/logs/rl_logging_board \
-    trainer.total_epochs=1 \
+    trainer.total_epochs=10 \
     custom_reward_function.path=verl/utils/reward_score/think_with_video_reward.py \
     custom_reward_function.name=compute_score \
     +custom_reward_function.reward_kwargs.nframes=8 \
     +custom_reward_function.reward_kwargs.lambda_gfn=0.2 \
     +custom_reward_function.reward_kwargs.lambda_cf=0.0 \
-    +custom_reward_function.reward_kwargs.lambda_zoom=0.0 \
     $@

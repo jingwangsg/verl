@@ -39,6 +39,7 @@ def main(config):
     Args:
         config_dict: Hydra configuration dictionary containing training parameters.
     """
+
     run_ppo(config)
 
 

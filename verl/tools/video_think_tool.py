@@ -18,9 +18,9 @@ import os
 import random
 import re
 import time
+from functools import partial
 from typing import Any, Optional, Tuple, List
 from uuid import uuid4
-from functools import partial
 
 import numpy as np
 import torch
@@ -99,7 +99,9 @@ class VideoThinkTool(BaseTool):
         """
         return self.tool_schema
 
-    async def create(self, instance_id: Optional[str] = None, **kwargs) -> tuple[str, ToolResponse]:
+    async def create(
+        self, instance_id: Optional[str] = None, **kwargs
+    ) -> tuple[str, ToolResponse]:
         """Create a tool instance for a video trajectory.
 
         Args:
@@ -132,7 +134,9 @@ class VideoThinkTool(BaseTool):
         if not video_path:
             raise ValueError("Missing required 'video_path' parameter in kwargs")
         if fps is None or total_frames is None:
-            raise ValueError("Missing required 'fps' or 'total_frames' parameter in kwargs")
+            raise ValueError(
+                "Missing required 'fps' or 'total_frames' parameter in kwargs"
+            )
 
         # Calculate num_frames_per_sample based on video duration
         duration_seconds = total_frames / fps
@@ -161,7 +165,9 @@ class VideoThinkTool(BaseTool):
 
         return instance_id, ToolResponse()
 
-    async def execute(self, instance_id: str, parameters: dict[str, Any], **kwargs) -> tuple[ToolResponse, float, dict]:
+    async def execute(
+        self, instance_id: str, parameters: dict[str, Any], **kwargs
+    ) -> tuple[ToolResponse, float, dict]:
         """Execute a video exploration action.
 
         Supported actions (parsed via regex):
@@ -179,26 +185,39 @@ class VideoThinkTool(BaseTool):
         instance_data = self._instance_dict.get(instance_id)
         if not instance_data:
             return (
-                ToolResponse(text="Error: Invalid instance ID"),
+                ToolResponse(
+                    content=[{"type": "text", "text": "Error: Invalid instance ID"}]
+                ),
                 -0.1,
-                {"success": False, "error": "invalid_instance"}
+                {"success": False, "error": "invalid_instance"},
             )
 
         # Extract action string from parameters
         action_string = parameters.get("action_string", "")
         if not action_string:
             return (
-                ToolResponse(text="Error: Missing action_string parameter"),
+                ToolResponse(
+                    content=[
+                        {
+                            "type": "text",
+                            "text": "Error: Missing action_string parameter",
+                        }
+                    ]
+                ),
                 -0.05,
-                {"success": False, "error": "missing_action"}
+                {"success": False, "error": "missing_action"},
             )
 
         # Parse and execute action
         try:
             # Action 1: Get frame number at time
-            time_match = re.match(r"get frame number at time\s+(\S+)", action_string.strip())
+            time_match = re.match(
+                r"get frame number at time\s+(\S+)", action_string.strip()
+            )
             if time_match:
-                return await self._handle_get_frame_number(instance_data, time_match.group(1))
+                return await self._handle_get_frame_number(
+                    instance_data, time_match.group(1)
+                )
 
             # Action 2: Zoom in on specific frame
             zoom_match = re.match(r"zoom in frame\s+(\d+)", action_string.strip())
@@ -207,25 +226,40 @@ class VideoThinkTool(BaseTool):
                 return await self._handle_zoom_in_frame(instance_data, frame_idx)
 
             # Action 3: Choose frames between range
-            range_match = re.search(r"choose frames between (\d+) and (\d+)", action_string)
+            range_match = re.search(
+                r"choose frames between (\d+) and (\d+)", action_string
+            )
             if range_match:
                 start_frame = int(range_match.group(1))
                 end_frame = int(range_match.group(2))
-                return await self._handle_choose_frames(instance_data, start_frame, end_frame)
+                return await self._handle_choose_frames(
+                    instance_data, start_frame, end_frame
+                )
 
             # No match found
             return (
-                ToolResponse(text=f"Error: Unrecognized action format: '{action_string}'"),
+                ToolResponse(
+                    content=[
+                        {
+                            "type": "text",
+                            "text": f"Error: Unrecognized action format: '{action_string}'",
+                        }
+                    ]
+                ),
                 -0.05,
-                {"success": False, "error": "unrecognized_action"}
+                {"success": False, "error": "unrecognized_action"},
             )
 
         except Exception as e:
             logger.error(f"Error executing action '{action_string}': {e}")
             return (
-                ToolResponse(text=f"Error executing action: {str(e)}"),
+                ToolResponse(
+                    content=[
+                        {"type": "text", "text": f"Error executing action: {str(e)}"}
+                    ]
+                ),
                 -0.1,
-                {"success": False, "error": "execution_error"}
+                {"success": False, "error": "execution_error"},
             )
 
     async def _handle_get_frame_number(
@@ -246,19 +280,28 @@ class VideoThinkTool(BaseTool):
             frame_number = int(total_seconds * instance_data["fps"])
 
             message = f"Frame number at time {time_str} is: {frame_number}."
-            logger.info(f"Computed frame number: time={time_str} -> frame={frame_number}")
+            logger.info(
+                f"Computed frame number: time={time_str} -> frame={frame_number}"
+            )
 
             return (
-                ToolResponse(text=message),
+                ToolResponse(content=[{"type": "text", "text": message}]),
                 0.0,
-                {"success": True, "action": "get_frame_number", "frame": frame_number}
+                {"success": True, "action": "get_frame_number", "frame": frame_number},
             )
         except (ValueError, IndexError) as e:
             logger.warning(f"Invalid time format: {time_str} - {e}")
             return (
-                ToolResponse(text=f"Error: Invalid time format '{time_str}'. Expected MM:SS."),
+                ToolResponse(
+                    content=[
+                        {
+                            "type": "text",
+                            "text": f"Error: Invalid time format '{time_str}'. Expected MM:SS.",
+                        }
+                    ]
+                ),
                 -0.05,
-                {"success": False, "error": "invalid_time_format"}
+                {"success": False, "error": "invalid_time_format"},
             )
 
     async def _handle_zoom_in_frame(
@@ -279,10 +322,15 @@ class VideoThinkTool(BaseTool):
         if frame_idx < 0 or frame_idx >= instance_data["total_frames"]:
             return (
                 ToolResponse(
-                    text=f"Error: Frame index {frame_idx} out of range [0, {instance_data['total_frames']-1}]"
+                    content=[
+                        {
+                            "type": "text",
+                            "text": f"Error: Frame index {frame_idx} out of range [0, {instance_data['total_frames']-1}]",
+                        }
+                    ]
                 ),
                 -0.05,
-                {"success": False, "error": "frame_out_of_range"}
+                {"success": False, "error": "frame_out_of_range"},
             )
 
         try:
@@ -293,29 +341,36 @@ class VideoThinkTool(BaseTool):
             # Extract frame in executor (blocking operation)
             loop = asyncio.get_running_loop()
             frame_image = await loop.run_in_executor(
-                None,
-                self._extract_highres_frame,
-                instance_data,
-                frame_idx
+                None, self._extract_highres_frame, instance_data, frame_idx
             )
 
             logger.info(f"Zoomed in on frame {frame_idx}")
 
             return (
                 ToolResponse(
-                    text=f"Zoomed in on frame {frame_idx}",
-                    image=[frame_image]
+                    content=[
+                        {"type": "text", "text": f"Zoomed in on frame {frame_idx}"},
+                        {"type": "image", "image": frame_image},
+                    ],
+                    image=[frame_image],
                 ),
                 0.0,
-                {"success": True, "action": "zoom_in_frame", "frame": frame_idx}
+                {"success": True, "action": "zoom_in_frame", "frame": frame_idx},
             )
 
         except Exception as e:
             logger.error(f"Failed to zoom in on frame {frame_idx}: {e}")
             return (
-                ToolResponse(text=f"Error: Failed to zoom in on frame {frame_idx}"),
+                ToolResponse(
+                    content=[
+                        {
+                            "type": "text",
+                            "text": f"Error: Failed to zoom in on frame {frame_idx}",
+                        }
+                    ]
+                ),
                 -0.1,
-                {"success": False, "error": "zoom_failed"}
+                {"success": False, "error": "zoom_failed"},
             )
 
     async def _handle_choose_frames(
@@ -339,9 +394,16 @@ class VideoThinkTool(BaseTool):
         # Validate frame range
         if start_frame >= total_frames:
             return (
-                ToolResponse(text=f"Error: Start frame {start_frame} exceeds total frames {total_frames}"),
+                ToolResponse(
+                    content=[
+                        {
+                            "type": "text",
+                            "text": f"Error: Start frame {start_frame} exceeds total frames {total_frames}",
+                        }
+                    ]
+                ),
                 -0.05,
-                {"success": False, "error": "invalid_range"}
+                {"success": False, "error": "invalid_range"},
             )
 
         # Clamp end_frame
@@ -352,10 +414,15 @@ class VideoThinkTool(BaseTool):
         if start_frame >= end_frame - num_frames_per_sample:
             return (
                 ToolResponse(
-                    text=f"Error: Frame range [{start_frame}, {end_frame}) too small for sampling {num_frames_per_sample} frames"
+                    content=[
+                        {
+                            "type": "text",
+                            "text": f"Error: Frame range [{start_frame}, {end_frame}) too small for sampling {num_frames_per_sample} frames",
+                        }
+                    ]
                 ),
                 -0.05,
-                {"success": False, "error": "range_too_small"}
+                {"success": False, "error": "range_too_small"},
             )
 
         try:
@@ -365,27 +432,32 @@ class VideoThinkTool(BaseTool):
 
             # Extract frames in executor (blocking operation)
             loop = asyncio.get_running_loop()
-            prompt_text, frame_images = await loop.run_in_executor(
-                None,
-                self._extract_frame_range,
-                instance_data,
-                start_frame,
-                end_frame
+            prompt_content, frame_images = await loop.run_in_executor(
+                None, self._extract_frame_range, instance_data, start_frame, end_frame
             )
 
             if len(frame_images) == 0:
                 return (
-                    ToolResponse(text="Error: Failed to extract frames from range"),
+                    ToolResponse(
+                        content=[
+                            {
+                                "type": "text",
+                                "text": "Error: Failed to extract frames from range",
+                            }
+                        ]
+                    ),
                     -0.1,
-                    {"success": False, "error": "extraction_failed"}
+                    {"success": False, "error": "extraction_failed"},
                 )
 
-            logger.info(f"Extracted {len(frame_images)} frames from range [{start_frame}, {end_frame})")
+            logger.info(
+                f"Extracted {len(frame_images)} frames from range [{start_frame}, {end_frame})"
+            )
 
             return (
                 ToolResponse(
-                    text=prompt_text,
-                    image=frame_images
+                    content=prompt_content,
+                    image=frame_images,
                 ),
                 0.0,
                 {
@@ -393,16 +465,25 @@ class VideoThinkTool(BaseTool):
                     "action": "choose_frames",
                     "start": start_frame,
                     "end": end_frame,
-                    "num_frames": len(frame_images)
-                }
+                    "num_frames": len(frame_images),
+                },
             )
 
         except Exception as e:
-            logger.error(f"Failed to extract frame range [{start_frame}, {end_frame}): {e}")
+            logger.error(
+                f"Failed to extract frame range [{start_frame}, {end_frame}): {e}"
+            )
             return (
-                ToolResponse(text=f"Error: Failed to extract frame range"),
+                ToolResponse(
+                    content=[
+                        {
+                            "type": "text",
+                            "text": f"Error: Failed to extract frame range",
+                        }
+                    ]
+                ),
                 -0.1,
-                {"success": False, "error": "extraction_failed"}
+                {"success": False, "error": "extraction_failed"},
             )
 
     async def _init_highres_decoder(self, instance_data: dict) -> None:
@@ -419,25 +500,30 @@ class VideoThinkTool(BaseTool):
                 loop = asyncio.get_running_loop()
                 decoder = await loop.run_in_executor(
                     None,
-                    partial(VideoDecoder, instance_data["video_path"], num_ffmpeg_threads=0),
-                    # VideoDecoder,
-                    # instance_data["video_path"],
-                    # "cpu",
-                    # 0  # num_ffmpeg_threads
+                    partial(
+                        VideoDecoder, instance_data["video_path"], num_ffmpeg_threads=0
+                    ),
                 )
                 instance_data["vr_highres"] = decoder
-                logger.info(f"Initialized high-res decoder for {instance_data['video_path']}")
+                logger.info(
+                    f"Initialized high-res decoder for {instance_data['video_path']}"
+                )
                 return
             except Exception as e:
-                if "Resource temporarily unavailable" in str(e) and attempt < max_retries - 1:
-                    wait_time = (base_delay * (2 ** attempt)) + random.uniform(0, 1)
+                if (
+                    "Resource temporarily unavailable" in str(e)
+                    and attempt < max_retries - 1
+                ):
+                    wait_time = (base_delay * (2**attempt)) + random.uniform(0, 1)
                     logger.warning(
                         f"[Attempt {attempt + 1}/{max_retries}] Failed to open video for high-res. "
                         f"Retrying in {wait_time:.2f} seconds..."
                     )
                     await asyncio.sleep(wait_time)
                 else:
-                    logger.error(f"[Attempt {attempt + 1}/{max_retries}] Failed to open video for high-res: {e}")
+                    logger.error(
+                        f"[Attempt {attempt + 1}/{max_retries}] Failed to open video for high-res: {e}"
+                    )
                     raise
 
     async def _init_lowres_decoder(self, instance_data: dict) -> None:
@@ -454,28 +540,35 @@ class VideoThinkTool(BaseTool):
                 loop = asyncio.get_running_loop()
                 decoder = await loop.run_in_executor(
                     None,
-                    partial(VideoDecoder, instance_data["video_path"], num_ffmpeg_threads=0),
-                    # VideoDecoder,
-                    # instance_data["video_path"],
-                    # "cpu",
-                    # 0  # num_ffmpeg_threads
+                    partial(
+                        VideoDecoder, instance_data["video_path"], num_ffmpeg_threads=0
+                    ),
                 )
                 instance_data["vr"] = decoder
-                logger.info(f"Initialized low-res decoder for {instance_data['video_path']}")
+                logger.info(
+                    f"Initialized low-res decoder for {instance_data['video_path']}"
+                )
                 return
             except Exception as e:
-                if "Resource temporarily unavailable" in str(e) and attempt < max_retries - 1:
-                    wait_time = (base_delay * (2 ** attempt)) + random.uniform(0, 1)
+                if (
+                    "Resource temporarily unavailable" in str(e)
+                    and attempt < max_retries - 1
+                ):
+                    wait_time = (base_delay * (2**attempt)) + random.uniform(0, 1)
                     logger.warning(
                         f"[Attempt {attempt + 1}/{max_retries}] Failed to open video for low-res. "
                         f"Retrying in {wait_time:.2f} seconds..."
                     )
                     await asyncio.sleep(wait_time)
                 else:
-                    logger.error(f"[Attempt {attempt + 1}/{max_retries}] Failed to open video for low-res: {e}")
+                    logger.error(
+                        f"[Attempt {attempt + 1}/{max_retries}] Failed to open video for low-res: {e}"
+                    )
                     raise
 
-    def _extract_highres_frame(self, instance_data: dict, frame_idx: int) -> Image.Image:
+    def _extract_highres_frame(
+        self, instance_data: dict, frame_idx: int
+    ) -> Image.Image:
         """Extract a single high-resolution frame (blocking operation).
 
         Args:
@@ -515,7 +608,7 @@ class VideoThinkTool(BaseTool):
             end_frame: End frame index
 
         Returns:
-            Tuple of (prompt_text, frame_images_list)
+            Tuple of (prompt_content, frame_images_list)
         """
         vr = instance_data["vr"]
         width = instance_data["width"]
@@ -534,7 +627,7 @@ class VideoThinkTool(BaseTool):
                 set(
                     map(
                         int,
-                        np.linspace(sample_start, sample_end, num_frames_per_sample)
+                        np.linspace(sample_start, sample_end, num_frames_per_sample),
                     )
                 )
             )
@@ -548,20 +641,23 @@ class VideoThinkTool(BaseTool):
         focused_frames_tensor = frame_batch.data  # [N, C, H, W]
 
         # Resize all frames to target size
-        frames_resized = torch.stack([tv_resize(f, [target_h, target_w]) for f in focused_frames_tensor])
+        frames_resized = torch.stack(
+            [tv_resize(f, [target_h, target_w]) for f in focused_frames_tensor]
+        )
 
         # Convert to [N, H, W, C] numpy array
         focused_frames_array = frames_resized.permute(0, 2, 3, 1).cpu().numpy()
 
         # Build prompt and convert to PIL Images
-        prompt_parts = []
+        prompt_content = []
         for frame_idx in frame_indices:
-            prompt_parts.append(f"frame {frame_idx}: <image>")
+            prompt_content.extend(
+                [{"type": "text", "text": f"\nframe {frame_idx}: "}, {"type": "image"}]
+            )
 
-        prompt_text = "\n".join(prompt_parts)
         frame_images = [Image.fromarray(frame) for frame in focused_frames_array]
 
-        return prompt_text, frame_images
+        return prompt_content, frame_images
 
     async def release(self, instance_id: str, **kwargs) -> None:
         """Release the tool instance and clean up resources.

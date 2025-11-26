@@ -94,7 +94,7 @@ class OpenAIFunctionToolCall(BaseModel):
 class ToolResponse(BaseModel):
     """The response from a tool execution."""
 
-    text: str | None = None
+    content: list[dict[str, Any]] | None = None
     image: list[Any] | None = None
     video: list[Any] | None = None
 
@@ -117,7 +117,7 @@ class ToolResponse(BaseModel):
         return values
 
     def is_empty(self) -> bool:
-        return not self.text and not self.image and not self.video
+        return not self.content and not self.image and not self.video
 
     def is_text_only(self) -> bool:
-        return self.text and not self.image and not self.video
+        return len(self.content) == 1 and self.content[0]["type"] == "text" and not self.image and not self.video
