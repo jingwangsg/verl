@@ -6,9 +6,8 @@
 set -x
 
 # Data and model paths
-BASE_DATA_DIR=/mnt/amlfs-02/shared/datasets/s3/video_reason/Video-Holmes
-PROJECT_NAME=video_holmes_rl
-EXP_NAME=${EXP_NAME:-framethinker_debug}
+PROJECT_NAME=${PROJECT_NAME:-video_holmes_rl}
+EXP=${EXP:-framethinker_debug}
 SAVE_CHECKPOINT_DIR=/mnt/amlfs-02/shared/datasets/checkpoints/jingwang/video_reason/
 CKPT_FULL=/mnt/amlfs-02/shared/checkpoints/jingwang/video_reason/sft/qwen2_5vl_7b_full_framethinker_sft
 MODEL_PATH=${MODEL_PATH:-$CKPT_FULL}
@@ -56,14 +55,18 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=1 \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
+    actor_rollout_ref.actor.fsdp_config.dtype=float16 \
+    actor_rollout_ref.actor.fsdp_config.model_dtype=fp16 \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=4 \
     actor_rollout_ref.rollout.name=vllm \
+    actor_rollout_ref.rollout.dtype=float16 \
     actor_rollout_ref.rollout.mode=async \
-    actor_rollout_ref.rollout.n=1 \
+    actor_rollout_ref.rollout.n=8 \
     actor_rollout_ref.rollout.max_num_batched_tokens=8192 \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
     actor_rollout_ref.rollout.limit_images=128 \
+    actor_rollout_ref.rollout.calculate_log_probs=True \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     actor_rollout_ref.rollout.multi_turn.enable=True \
@@ -83,11 +86,14 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     trainer.val_before_train=False \
     trainer.test_freq=50 \
     trainer.project_name=${PROJECT_NAME} \
-    trainer.experiment_name=${EXP_NAME} \
+    trainer.experiment_name=${EXP} \
     trainer.default_local_dir=${SAVE_CHECKPOINT_DIR}/${PROJECT_NAME}/${EXP_NAME} \
     +trainer.tensorboard_dir=${SAVE_CHECKPOINT_DIR}/logs/tensorboard \
     +trainer.rl_logging_board_dir=${SAVE_CHECKPOINT_DIR}/logs/rl_logging_board \
     trainer.total_epochs=10 \
+    actor_rollout_ref.actor.optim.betas="[0.9,0.95]" \
+    actor_rollout_ref.actor.optim.weight_decay=0.0 \
+    +actor_rollout_ref.actor.optim.override_optimizer_config.eps=1e-15 \
     custom_reward_function.path=verl/utils/reward_score/think_with_video_reward.py \
     custom_reward_function.name=compute_score \
     +custom_reward_function.reward_kwargs.nframes=8 \

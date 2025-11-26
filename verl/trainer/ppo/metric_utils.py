@@ -221,6 +221,17 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
         metrics["tool_call_counts/max"] = tool_call_counts.max()
         metrics["tool_call_counts/mean"] = tool_call_counts.mean()
 
+    if "tool_call_counts_per_tool" in batch.non_tensor_batch:
+        per_tool_counts = list(batch.non_tensor_batch["tool_call_counts_per_tool"])
+        if len(per_tool_counts) > 0:
+            all_tools: set[str] = set()
+            for tool_dict in per_tool_counts:
+                all_tools.update(tool_dict.keys())
+            for tool in sorted(all_tools):
+                counts = np.array([tool_dict.get(tool, 0) for tool_dict in per_tool_counts])
+                safe_tool = tool.replace("/", "_")
+                metrics[f"tool_call_counts_per_tool/{safe_tool}/mean"] = counts.mean()
+
     return metrics
 
 

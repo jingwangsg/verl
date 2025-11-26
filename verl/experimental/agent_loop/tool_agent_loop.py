@@ -81,6 +81,8 @@ class AgentData:
         self.tool_rewards: list[float] = []
         self.user_turns = 0
         self.assistant_turns = 0
+        self.tool_call_count_total = 0
+        self.tool_call_counts_by_tool: dict[str, int] = {}
 
         # Temporary state for tool calls
         self.tool_calls: list[FunctionCall] = []
@@ -226,7 +228,10 @@ class ToolAgentLoop(AgentLoopBase):
             ),
             num_turns=agent_data.user_turns + agent_data.assistant_turns + 1,
             metrics=agent_data.metrics,
-            extra_fields={},
+            extra_fields={
+                "tool_call_counts": agent_data.tool_call_count_total,
+                "tool_call_counts_per_tool": dict(agent_data.tool_call_counts_by_tool),
+            },
         )
 
         output.extra_fields.update(
@@ -349,6 +354,11 @@ class ToolAgentLoop(AgentLoopBase):
         for tool_call in agent_data.tool_calls[: self.max_parallel_calls]:
             tasks.append(self._call_tool(tool_call, agent_data.tools_kwargs))
             tool_call_names.append(tool_call.name)
+
+        # Track tool call statistics for this episode
+        agent_data.tool_call_count_total += len(tool_call_names)
+        for name in tool_call_names:
+            agent_data.tool_call_counts_by_tool[name] = agent_data.tool_call_counts_by_tool.get(name, 0) + 1
 
         with simple_timer("tool_calls", agent_data.metrics):
             responses = await asyncio.gather(*tasks)
