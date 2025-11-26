@@ -98,6 +98,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.multi_turn.max_tool_response_length=2048 \
     actor_rollout_ref.rollout.multi_turn.tool_response_truncate_side=middle \
     actor_rollout_ref.rollout.multi_turn.tool_response_role=user \
+    +actor_rollout_ref.rollout.engine_kwargs.vllm.disable_mm_preprocessor_cache=True \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
     trainer.n_gpus_per_node=8 \
