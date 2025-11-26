@@ -83,6 +83,7 @@ class AgentData:
         self.assistant_turns = 0
         self.tool_call_count_total = 0
         self.tool_call_counts_by_tool: dict[str, int] = {}
+        self.tool_call_counts_by_action: dict[str, int] = {}
 
         # Temporary state for tool calls
         self.tool_calls: list[FunctionCall] = []
@@ -231,6 +232,7 @@ class ToolAgentLoop(AgentLoopBase):
             extra_fields={
                 "tool_call_counts": agent_data.tool_call_count_total,
                 "tool_call_counts_per_tool": dict(agent_data.tool_call_counts_by_tool),
+                "tool_call_counts_per_action": dict(agent_data.tool_call_counts_by_action),
             },
         )
 
@@ -365,10 +367,15 @@ class ToolAgentLoop(AgentLoopBase):
 
         # Process tool responses and update multi_modal_data
         # Removed: agent_data.new_images_this_turn = []
-        for tool_response, tool_reward, _ in responses:
+        for tool_response, tool_reward, res in responses:
             add_messages = [
                 {"role": self.tool_response_role, "content": tool_response.content}
             ]
+            action_type = res.get("action_type") if isinstance(res, dict) else None
+            if action_type:
+                agent_data.tool_call_counts_by_action[action_type] = (
+                    agent_data.tool_call_counts_by_action.get(action_type, 0) + 1
+                )
 
             # Handle image data
             if tool_response.image:

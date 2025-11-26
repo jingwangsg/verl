@@ -217,9 +217,9 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
 
     if "tool_call_counts" in batch.non_tensor_batch:
         tool_call_counts = batch.non_tensor_batch["tool_call_counts"]
-        metrics["tool_call_counts/min"] = tool_call_counts.min()
-        metrics["tool_call_counts/max"] = tool_call_counts.max()
-        metrics["tool_call_counts/mean"] = tool_call_counts.mean()
+        metrics["tool_call/total/min"] = tool_call_counts.min()
+        metrics["tool_call/total/max"] = tool_call_counts.max()
+        metrics["tool_call/total/mean"] = tool_call_counts.mean()
 
     if "tool_call_counts_per_tool" in batch.non_tensor_batch:
         per_tool_counts = list(batch.non_tensor_batch["tool_call_counts_per_tool"])
@@ -230,7 +230,18 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
             for tool in sorted(all_tools):
                 counts = np.array([tool_dict.get(tool, 0) for tool_dict in per_tool_counts])
                 safe_tool = tool.replace("/", "_")
-                metrics[f"tool_call_counts_per_tool/{safe_tool}/mean"] = counts.mean()
+                metrics[f"tool_call/by_tool/{safe_tool}/mean"] = counts.mean()
+
+    if "tool_call_counts_per_action" in batch.non_tensor_batch:
+        per_action_counts = list(batch.non_tensor_batch["tool_call_counts_per_action"])
+        if len(per_action_counts) > 0:
+            all_actions: set[str] = set()
+            for action_dict in per_action_counts:
+                all_actions.update(action_dict.keys())
+            for action in sorted(all_actions):
+                counts = np.array([action_dict.get(action, 0) for action_dict in per_action_counts])
+                safe_action = action.replace("/", "_")
+                metrics[f"tool_call/by_action/{safe_action}/mean"] = counts.mean()
 
     return metrics
 

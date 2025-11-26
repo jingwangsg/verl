@@ -275,8 +275,15 @@ class VideoThinkTool(BaseTool):
             Tuple of (ToolResponse, reward, metrics)
         """
         try:
-            minutes, seconds = map(int, time_str.split(":"))
-            total_seconds = minutes * 60 + seconds
+            parts = time_str.split(":")
+            if len(parts) == 2:
+                minutes, seconds = map(int, parts)
+                total_seconds = minutes * 60 + seconds
+            elif len(parts) == 3:
+                hours, minutes, seconds = map(int, parts)
+                total_seconds = hours * 3600 + minutes * 60 + seconds
+            else:
+                raise ValueError("expected HH:MM:SS or MM:SS")
             frame_number = int(total_seconds * instance_data["fps"])
 
             message = f"Frame number at time {time_str} is: {frame_number}."
@@ -287,7 +294,12 @@ class VideoThinkTool(BaseTool):
             return (
                 ToolResponse(content=[{"type": "text", "text": message}]),
                 0.0,
-                {"success": True, "action": "get_frame_number", "frame": frame_number},
+                {
+                    "success": True,
+                    "action": "get_frame_number",
+                    "action_type": "get_frame_number",
+                    "frame": frame_number,
+                },
             )
         except (ValueError, IndexError) as e:
             logger.warning(f"Invalid time format: {time_str} - {e}")
@@ -296,7 +308,7 @@ class VideoThinkTool(BaseTool):
                     content=[
                         {
                             "type": "text",
-                            "text": f"Error: Invalid time format '{time_str}'. Expected MM:SS.",
+                            "text": f"Error: Invalid time format '{time_str}'. Expected HH:MM:SS or MM:SS.",
                         }
                     ]
                 ),
@@ -355,7 +367,12 @@ class VideoThinkTool(BaseTool):
                     image=[frame_image],
                 ),
                 0.0,
-                {"success": True, "action": "zoom_in_frame", "frame": frame_idx},
+                {
+                    "success": True,
+                    "action": "zoom_in_frame",
+                    "action_type": "zoom_in_frame",
+                    "frame": frame_idx,
+                },
             )
 
         except Exception as e:
@@ -463,6 +480,7 @@ class VideoThinkTool(BaseTool):
                 {
                     "success": True,
                     "action": "choose_frames",
+                    "action_type": "choose_frames",
                     "start": start_frame,
                     "end": end_frame,
                     "num_frames": len(frame_images),

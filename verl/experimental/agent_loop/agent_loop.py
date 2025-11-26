@@ -587,6 +587,10 @@ class AgentLoopWorkerBase:
             [input.extra_fields.get("tool_call_counts_per_tool", {}) for input in inputs],
             dtype=object,
         )
+        non_tensor_batch["tool_call_counts_per_action"] = np.array(
+            [input.extra_fields.get("tool_call_counts_per_action", {}) for input in inputs],
+            dtype=object,
+        )
 
         # add reward_extra_info to non_tensor_batch
         reward_extra_infos = [input.extra_fields.get("reward_extra_info", {}) for input in inputs]
@@ -602,7 +606,7 @@ class AgentLoopWorkerBase:
         metrics = [input.metrics.model_dump() for input in inputs]
         # Collect extra fields from all inputs and convert them to np.ndarray
         extra_fields = {}
-        skip_extra_fields = {"tool_call_counts", "tool_call_counts_per_tool"}
+        skip_extra_fields = {"tool_call_counts", "tool_call_counts_per_tool", "tool_call_counts_per_action"}
         all_keys = set(
             key for input_item in inputs for key in input_item.extra_fields if key not in skip_extra_fields
         )
