@@ -14,7 +14,6 @@ ray[default]
 tensordict
 torchdata
 transformers==4.55.4
-vllm==0.10.0
 wandb
 ninja
 ninja2
