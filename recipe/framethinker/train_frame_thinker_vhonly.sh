@@ -23,10 +23,28 @@ TRAIN_FILES=${TRAIN_FILES:-$PROJECT_DIR/data/video_reason/Video-Holmes/train.par
 VAL_FILES=${VAL_FILES:-$PROJECT_DIR/data/video_reason/Video-Holmes/test.parquet}
 MEDIA_DIA=${MEDIA_DIA:-$PROJECT_DIR/data/video_reason/}
 
+# Hyperparameters
+train_batch_size=32
+num_frames=8
+lr=1e-6
+message_template=framethinker_add_zoomin
+
+if [[ "$message_template" == "framethinker_add_zoomin" ]]; then
+    name_part="zoomin"
+elif [[ "$message_template" == "framethinker_default" ]]; then
+    name_part="default"
+elif [[ "$message_template" == "default" ]]; then
+    name_part="grpo"
+else
+    echo "Error: unknown message_template: $message_template"
+    exit 1
+fi
+
 # Model and save paths
 MODEL_PATH=${MODEL_PATH:-$PROJECT_DIR/model_weights/ft_coldstart/qwen2_5vl_7b_full_framethinker_sft}
 PROJECT_NAME=${PROJECT_NAME:-video_holmes_verl}
-EXP_NAME=${EXP_NAME:-framethinker_verl_debug}
+EXP_NAME=framethinker_${name_part}_bsz${train_batch_size}_${num_frames}frames_${lr}
+# EXP_NAME=${EXP_NAME:-framethinker_verl_debug}
 SAVE_CHECKPOINT_DIR=${SAVE_CHECKPOINT_DIR:-$PROJECT_DIR/checkpoints/video_reason/}
 
 # Hyperparams
@@ -43,7 +61,7 @@ fi
 PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     "data.train_files=[${TRAIN_FILES}]" \
     "data.val_files=[${VAL_FILES}]" \
-    data.train_batch_size=32 \
+    data.train_batch_size=${train_batch_size} \
     data.max_prompt_length=8192 \
     data.max_response_length=8192 \
     data.media_dir=${MEDIA_DIA} \
@@ -52,14 +70,14 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     data.dataloader_num_workers=8 \
     data.message_template=framethinker_add_zoomin \
     data.media_reading_kwargs.enable=True \
-    data.media_reading_kwargs.num_frames=8 \
+    data.media_reading_kwargs.num_frames=${num_frames} \
     data.media_reading_kwargs.size=360 \
     data.media_reading_kwargs.sampling_mode=uniform \
     algorithm.adv_estimator=grpo \
     algorithm.kl_ctrl.kl_coef=0.0 \
     actor_rollout_ref.model.path=${MODEL_PATH} \
     actor_rollout_ref.model.use_remove_padding=True \
-    actor_rollout_ref.actor.optim.lr=1e-6 \
+    actor_rollout_ref.actor.optim.lr=${lr} \
     actor_rollout_ref.actor.ppo_mini_batch_size=32 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.actor.use_kl_loss=False \
