@@ -13,6 +13,9 @@ export WANDB_ENTITY="<entity_name>"
 set -x
 ulimit -n 65535
 
+ray stop
+ray start --head --resources='{"drivers": 1}'
+
 # Get absolute path to project root
 PROJECT_DIR="$(pwd)"
 CONFIG_PATH="$PROJECT_DIR/recipe/framethinker/config"
