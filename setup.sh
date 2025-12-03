@@ -20,13 +20,17 @@ if [ ! -d "data/video_reason/Video-Holmes" ]; then
     huggingface-cli download --repo-type dataset --resume-download k-nick/video_reason --local-dir data/video_reason/Video-Holmes
 fi
 
+if [ ! -d "data/video_reason/vr_train_vr1" ]; then
+    huggingface-cli download --repo-type dataset --resume-download k-nick/vr_train_vr1 --local-dir data/video_reason/vr_train_vr1
+fi
+
 cp recipe/framethinker/data_preprocess/decompress.py data/video_reason/Video-Holmes
 cd data/video_reason/Video-Holmes
 python decompress.py
 cd ../../../
 
-chmod a+x recipe/framethinker/data_preprocess/convert_video_holmes.sh
-./recipe/framethinker/data_preprocess/convert_video_holmes.sh
+chmod a+x recipe/framethinker/data_preprocess/convert_to_rl_parquet.sh
+./recipe/framethinker/data_preprocess/convert_to_rl_parquet.sh
 
 # download model weights
 mkdir -p model_weights
