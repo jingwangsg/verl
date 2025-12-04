@@ -35,6 +35,7 @@ from safetensors.torch import save_file
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp.api import FullStateDictConfig, ShardedStateDictConfig, StateDictType
+from verl.experimental.reward.reward_manager import get_custom_reward_fn
 
 try:
     # for torch 2.5+
@@ -89,7 +90,6 @@ from verl.workers.config import FSDPCriticConfig, FSDPEngineConfig, HFModelConfi
 from verl.workers.config.optimizer import build_optimizer
 from verl.workers.rollout import get_rollout_class
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
-from debug.snapshot import Snapshot
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -751,6 +751,20 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         # restore random states
         self.gen_random_states = get_torch_device().get_rng_state()
         get_torch_device().set_rng_state(self.torch_random_states)
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def set_free_cache_engine(self, flag: bool):
+        """Toggle free_cache_engine at runtime (e.g., disable during validation)."""
+
+        # update local config
+        with open_dict(self.config.rollout):
+            self.config.rollout.free_cache_engine = bool(flag)
+
+        # rollout instance keeps its own config reference; keep them in sync
+        if hasattr(self, "rollout"):
+            self.rollout.config.free_cache_engine = bool(flag)
+
+        return self.config.rollout.free_cache_engine
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
@@ -1962,3 +1976,123 @@ class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     ) -> list[int]:
         ret = await self.rollout.generate(prompt_ids, sampling_params, request_id, image_data=image_data)
         return ret
+
+# # ================================= Custom Reward Model Worker =================================
+# class RolloutRewardModelWorker(ActorRolloutRefWorker):
+#     # in essence a rollout only worker
+#     def __init__(self, config: DictConfig, **kwargs):
+#         self.config = config.reward_model
+#         self._build_rollout(trust_remote_code=self.config.model.get("trust_remote_code", False))
+#         self.reward_fn = self._build_reward_fn()
+    
+#     def _build_reward_fn(self):
+#         self.reward_fn = get_custom_reward_fn(self.config)
+
+#     def _build_rollout(self, trust_remote_code=False):
+#         from torch.distributed.device_mesh import init_device_mesh
+
+#         # 1. parse rollout and huggingface model config
+#         rollout_config: RolloutConfig = omega_conf_to_dataclass(self.config.rollout)
+#         model_config: HFModelConfig = omega_conf_to_dataclass(self.config.model, dataclass_type=HFModelConfig)
+#         self.model_config = model_config
+
+#         # 2. build rollout device mesh
+#         infer_tp = self.config.rollout.tensor_model_parallel_size * self.config.rollout.data_parallel_size
+#         infer_pp = self.config.rollout.pipeline_model_parallel_size
+#         infer_world_size = infer_tp * infer_pp
+#         dp = self.world_size // infer_world_size
+#         assert self.world_size % infer_world_size == 0, (
+#             f"rollout world_size: {self.world_size} is not divisible by infer_world_size: {infer_world_size}"
+#         )
+#         rollout_device_mesh = init_device_mesh(
+#             device_name, mesh_shape=(dp, infer_tp, infer_pp), mesh_dim_names=["dp", "infer_tp", "infer_pp"]
+#         )
+#         rollout_name = self.config.rollout.name
+
+#         if rollout_name == "hf":
+#             self._register_dispatch_collect_info("rollout", dp_rank=self.rank, is_collect=True)
+#         else:
+#             is_collect = (
+#                 rollout_device_mesh["infer_tp"].get_local_rank() == 0
+#                 and rollout_device_mesh["infer_pp"].get_local_rank() == 0
+#             )
+#             self._register_dispatch_collect_info(
+#                 "rollout", dp_rank=rollout_device_mesh["dp"].get_local_rank(), is_collect=is_collect
+#             )
+
+#         # 3. init trainer and rollout random states
+#         self.torch_random_states = get_torch_device().get_rng_state()
+#         gen_dp_rank = rollout_device_mesh["dp"].get_local_rank()
+#         get_torch_device().manual_seed(gen_dp_rank + 1000)  # make sure all tp ranks have the same random states
+#         self.gen_random_states = get_torch_device().get_rng_state()
+#         get_torch_device().set_rng_state(self.torch_random_states)
+
+#         # 4. build rollout model
+#         log_gpu_memory_usage(f"Before building reward model rollout {self.config.rollout.name}", logger=logger)
+
+#         self.rollout = get_rollout_class(rollout_config.name, rollout_config.mode)(
+#             config=rollout_config, model_config=model_config, device_mesh=rollout_device_mesh
+#         )
+
+#         log_gpu_memory_usage(f"After building reward model rollout {self.config.rollout.name}", logger=logger)
+
+#         # 5. switch to trainer mode
+#         # NOTE: It's critical that hybrid engine in trainer mode initially to load checkpoint.
+#         # For sync mode, we directly switch to trainer mode here.
+#         # For async mode, we can't call run_until_complete here, so we will switch to trainer mode in AgentLoopManager.
+#         if self.config.reward_model.rollout.mode == "sync":
+#             loop = get_event_loop()
+#             loop.run_until_complete(self.trainer_mode())
+    
+#     @register(dispatch_mode=make_nd_compute_dataproto_dispatch_fn(mesh_name="rollout"))
+#     @DistProfiler.annotate(color="brown", role="reward_model_generate")
+#     def generate_sequences(self, prompts: DataProto):
+#         # Support all hardwares
+#         assert self._is_rollout
+#         prompts = prompts.to(get_device_id())
+
+#         meta_info = {
+#             "eos_token_id": self.generation_config.eos_token_id
+#             if self.generation_config is not None
+#             else self.tokenizer.eos_token_id,
+#             "pad_token_id": self.generation_config.pad_token_id
+#             if self.generation_config is not None
+#             else self.tokenizer.pad_token_id,
+#         }
+#         prompts.meta_info.update(meta_info)
+
+#         timing_generate = {}
+#         if self._is_actor:  # For rollout only, we do not switch context.
+#             loop = get_event_loop()
+#             loop.run_until_complete(self.rollout_mode())
+#             log_gpu_memory_usage("After switch to rollout mode", logger=logger)
+
+#         with simple_timer("generate_sequences", timing_generate):
+#             output = self.rollout.generate_sequences(prompts=prompts)
+
+#         if self._is_actor:
+#             loop.run_until_complete(self.trainer_mode())
+#             log_gpu_memory_usage("After switch to trainer mode", logger=logger)
+
+#         # We calculate the average timing across all ranks
+#         # to make sure meta_info["timing"] is the same
+#         timing_generate_topk_ratio, timing_generate_min, timing_generate_max = topk_reduce_ratio_min_max(
+#             timing_generate["generate_sequences"]
+#         )
+#         timing_generate = reduce_timing(timing_generate)
+#         timing_generate.update(
+#             {
+#                 "generation_timing/max": timing_generate_max,
+#                 "generation_timing/min": timing_generate_min,
+#                 "generation_timing/topk_ratio": timing_generate_topk_ratio,
+#             }
+#         )
+#         output.meta_info["timing"] = timing_generate
+#         output = output.to("cpu")
+
+#         # clear kv cache
+#         get_torch_device().empty_cache()
+#         return output
+    
+#     def compute_score(self, data: DataProto):
+#         return self.reward_fn(data, rm_wg=self)

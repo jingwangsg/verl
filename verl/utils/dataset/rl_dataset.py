@@ -275,6 +275,7 @@ class RLHFDataset(Dataset):
 
         message_template_name = self.config.message_template
         apply_message_template = get_message_template(message_template_name)
+
         messages = apply_message_template(messages, config=self.config, **example)
 
         # Check if we need to process multimodal placeholders

@@ -8,117 +8,13 @@ matching the official format from GitHub issue #4.
 
 import argparse
 import json
-import subprocess
-import tempfile
-from pathlib import Path
-from typing import Dict, List, Any
-import io
 import os
+from pathlib import Path
+from typing import Any, Dict, List
 
-import numpy as np
-from datasets import load_dataset, Dataset
+from datasets import load_dataset
 from PIL import Image
 from torchcodec.decoders import VideoDecoder
-from einops import rearrange
-from torchcodec.decoders import VideoDecoder
-
-
-def get_video_metadata(video_path: str) -> Dict[str, any]:
-    """
-    Extract video metadata using ffprobe.
-
-    Args:
-        video_path: Path to video file
-
-    Returns:
-        Dictionary containing fps, total_frames, width, height
-    """
-    cmd = [
-        "ffprobe",
-        "-v",
-        "error",
-        "-select_streams",
-        "v:0",
-        "-show_entries",
-        "stream=r_frame_rate,nb_frames,width,height",
-        "-of",
-        "json",
-        video_path,
-    ]
-
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        data = json.loads(result.stdout)
-        stream = data["streams"][0]
-
-        # Parse frame rate (e.g., "24000/1001" -> 23.976)
-        r_frame_rate = stream["r_frame_rate"]
-        num, den = map(int, r_frame_rate.split("/"))
-        fps = num / den
-
-        return {
-            "fps": float(fps),
-            "total_frames": int(stream["nb_frames"]),
-            "width": int(stream["width"]),
-            "height": int(stream["height"]),
-        }
-    except Exception as e:
-        print(f"Error processing {video_path}: {e}")
-        raise
-
-
-def compute_target_size(width: int, height: int, size: int) -> tuple[int, int]:
-    """
-    Compute target size for video frame resizing.
-    """
-    if width > height:
-        return size, int(size * height / width)
-    else:
-        return int(size * width / height), size
-
-
-def extract_frames(
-    video_path: str,
-    num_frames: int = 8,
-    size=360,
-) -> tuple[List[Dict], List[int]]:
-    """
-    Extract evenly-spaced frames from video using torchcodec VideoDecoder.
-
-    Args:
-        video_path: Path to video file
-        num_frames: Number of frames to extract (default: 8)
-
-    Returns:
-        Tuple of (frames, frame_indices)
-        - frames: List of dicts with 'bytes' and 'path' keys
-        - frame_indices: List of actual frame indices extracted
-    """
-    # Open video with torchcodec
-    decoder = VideoDecoder(video_path, num_ffmpeg_threads=0)
-    total_frames = len(decoder)
-
-    # Calculate frame indices (evenly spaced, excluding last frame)
-    frame_indices = np.linspace(0, total_frames - 1, num_frames, dtype=int).tolist()
-
-    frames = decoder.get_frames_at(frame_indices).data
-    frames = rearrange(frames, "t c h w -> t h w c")
-    frames = frames.cpu().numpy()
-
-    outputs = []
-
-    for frame in frames:
-        # Convert to PIL Image (ensure uint8)
-        pil_image = Image.fromarray(frame)
-
-        # Convert to PNG bytes
-        buffer = io.BytesIO()
-        pil_image.save(buffer, format="PNG")
-        image_bytes = buffer.getvalue()
-
-        outputs.append({"bytes": image_bytes, "path": None})
-
-    return outputs, frame_indices
 
 
 def build_prompt(question: str) -> List[Dict]:
@@ -139,8 +35,8 @@ def process_single_sample(
     example: Dict[str, Any],
     idx: int,
     media_dir: str,
-    num_frames: int = 8,
     data_source: str = "TencentARC/Video-Holmes",
+    dataset_short: str | None = None,
 ) -> Dict[str, Any]:
     """
     Process a single sample for datasets.map().
@@ -149,31 +45,52 @@ def process_single_sample(
         example: Single sample from dataset
         idx: Sample index
         media_dir: Directory containing media files
-        num_frames: Number of initial frames to extract
 
     Returns:
         Processed sample in RL format, or None if processing failed
     """
     try:
-        # Get video path (could be relative or absolute)
-        video_path = example["video_path"]
-        abs_video_path = os.path.join(media_dir, video_path)
-        vr = VideoDecoder(abs_video_path, num_ffmpeg_threads=0)
-        fps = vr.metadata.average_fps
-        total_frames = vr.metadata.num_frames
-        width = vr.metadata.width
-        height = vr.metadata.height
+        # Resolve media path (video or image)
+        video_path = example.get("video_path")
+        image_path = example.get("image_path")
 
-        # Check if video exists
-        if not Path(abs_video_path).exists():
-            print(f"\nWarning: Video not found: {abs_video_path}")
+        # Use only the explicitly provided field: prefer video_path when present, otherwise image_path.
+        media_path = video_path if video_path else image_path
+        if not media_path:
+            print(f"\nWarning: Missing media path for sample {idx}")
             return None
 
-        # Get video metadata
-        video_meta = get_video_metadata(abs_video_path)
+        abs_media_path = os.path.join(media_dir, media_path)
+        if not Path(abs_media_path).exists():
+            print(f"\nWarning: Media not found: {abs_media_path}")
+            return None
 
-        # Extract frames
-        # frames, frame_indices = extract_frames(abs_video_path, num_frames=num_frames)
+        # Branch: image vs video
+        ext = Path(abs_media_path).suffix.lower()
+        is_image = ext in {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
+
+        if is_image:
+            with Image.open(abs_media_path) as img:
+                width, height = img.size
+            fps = 0
+            total_frames = 1
+        else:
+            vr = VideoDecoder(abs_media_path, num_ffmpeg_threads=0)
+            fps = vr.metadata.average_fps
+            total_frames = vr.metadata.num_frames
+            width = vr.metadata.width
+            height = vr.metadata.height
+
+            # Fallbacks for edge cases where metadata is partial
+            if not total_frames or total_frames <= 0:
+                total_frames = len(vr)
+            if not fps or fps <= 0:
+                # Avoid div-by-zero; estimate from duration if available
+                try:
+                    duration = vr.metadata.duration
+                    fps = total_frames / duration if duration and duration > 0 else 0
+                except Exception:
+                    fps = 0
 
         # Build prompt with actual frame indices
         question = example["question"]
@@ -184,27 +101,31 @@ def process_single_sample(
 
         # Build extra_info
         extra_info = {
-            "fps": video_meta["fps"],
-            "height": video_meta["height"],
-            "width": video_meta["width"],
-            "total_frames": video_meta["total_frames"],
-            "video_path": video_path,  # should be relative path
+            # Use decoder metadata directly; some files miss ffprobe nb_frames
+            "fps": float(fps),
+            "height": int(height),
+            "width": int(width),
+            "total_frames": int(total_frames),
+            ("video_path" if video_path else "image_path"): media_path,  # keep original key
             "answer": ground_truth,
             "question": question,
             "split": example.get("metadata", {}).get("split", "train"),
             "index": idx,
-            "tools_kwargs": {
+        }
+
+        # tool metadata only makes sense for video samples
+        if video_path:
+            extra_info["tools_kwargs"] = {
                 "video_think": {
-                    "create_kwargs": {  # ← create()方法使用
-                        "video_path": video_path,  # 必需：视频文件路径
-                        "fps": fps,  # 必需：帧率
-                        "total_frames": total_frames,  # 必需：总帧数
-                        "width": width,  # 必需：视频宽度
-                        "height": height,  # 必需：视频高度
+                    "create_kwargs": {
+                        "video_path": video_path,
+                        "fps": fps,
+                        "total_frames": total_frames,
+                        "width": width,
+                        "height": height,
                     }
                 }
-            },
-        }
+            }
 
         # Add optional fields if present
         if "thinking" in example:
@@ -212,21 +133,28 @@ def process_single_sample(
         if "explanation" in example.get("metadata", {}):
             extra_info["explanation"] = example["metadata"]["explanation"]
 
+        # Build metadata with unified question_id
+        metadata = dict(example.get("metadata", {}))
+        short_name = dataset_short or data_source
+        metadata["question_id"] = f"{short_name}_{idx}"
+
         # Build RL format sample
-        return {
-            "agent_name": "tool_agent",
+        sample = {
             "data_source": data_source,
             "prompt": prompt,
             # "images": frames,
             "ability": "vl_video_reasoning",
-            "env_name": "think_with_video",
-            "video_path": video_path,
             "reward_model": {"ground_truth": ground_truth, "style": "rule"},
             "ground_truth": ground_truth,
             "question_type": example.get("question_type", "mcq"),
-            "metadata": example.get("metadata", {}),
+            "metadata": metadata,
             "extra_info": extra_info,
         }
+
+        media_key = "video_path" if video_path else "image_path"
+        sample[media_key] = media_path
+
+        return sample
 
     except Exception as e:
         print(f"\nError processing sample {idx}: {e}")
@@ -242,7 +170,6 @@ def get_empty_sample_schema():
     """
     return {
         "_skip": True,
-        "agent_name": "",
         "data_source": "",
         "prompt": [],
         "ability": "",
@@ -276,12 +203,6 @@ def main():
         help="Data source name (default: TencentARC/Video-Holmes)",
     )
     parser.add_argument(
-        "--num-frames",
-        type=int,
-        default=8,
-        help="Number of initial frames to extract (default: 8)",
-    )
-    parser.add_argument(
         "--num-proc",
         type=int,
         default=None,
@@ -291,7 +212,7 @@ def main():
         "--media-dir",
         type=str,
         default=None,
-        help="Directory containing media files (default: None)",
+        help="Directory containing media files (default: auto: json_file/../../)",
     )
 
     args = parser.parse_args()
@@ -302,9 +223,22 @@ def main():
     else:
         output_path = Path(args.output)
 
+    # Determine media dir
+    media_dir = args.media_dir
+    if media_dir is None:
+        # Heuristic: json_file is typically .../BENCHMARK/<name>/split.json
+        # So take grandparent to get media root (video_reason)
+        json_parent = Path(args.json_file).resolve()
+        try:
+            media_dir = str(json_parent.parents[2])
+        except IndexError:
+            print("Cannot infer media-dir; please pass --media-dir explicitly.")
+            exit(1)
+    print(f"Media dir: {media_dir}")
+
     # Determine number of processes
-    num_proc = args.num_proc if args.num_proc is not None else os.cpu_count()
-    print(f"Using {num_proc} processes for parallel processing")
+    num_proc = args.num_proc if args.num_proc is not None else 1
+    print(f"Using {num_proc} processes for processing")
 
     # Load dataset using datasets library
     print(f"Loading JSON from: {args.json_file}")
@@ -319,9 +253,9 @@ def main():
         result = process_single_sample(
             example=example,
             idx=idx,
-            media_dir=args.media_dir,
-            num_frames=args.num_frames,
+            media_dir=media_dir,
             data_source=args.data_source,
+            dataset_short=args.data_source,
         )
         # Return consistent schema if processing failed (will be filtered out)
         if result is None:
@@ -341,7 +275,12 @@ def main():
             lambda x: "_skip" not in x or not x["_skip"]
         )
         processed_dataset = processed_dataset.remove_columns(["_skip"])
-        print(f"Filtered out {original_len - len(processed_dataset)} failed samples")
+        failed = original_len - len(processed_dataset)
+        print(f"Filtered out {failed} failed samples")
+
+    if len(processed_dataset) == 0:
+        print("No samples processed successfully; aborting write.")
+        return
 
     print(f"\nSuccessfully processed {len(processed_dataset)} samples")
 

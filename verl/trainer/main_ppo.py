@@ -231,23 +231,42 @@ class TaskRunner:
             use_legacy_worker_impl = config.trainer.get(
                 "use_legacy_worker_impl", "auto"
             )
+
+            reward_model_worker_cls = None
+
             if use_legacy_worker_impl in ["auto", "enable"]:
                 if config.reward_model.strategy in {"fsdp", "fsdp2"}:
                     from verl.workers.fsdp_workers import RewardModelWorker
+                    reward_model_worker_cls = RewardModelWorker
                 elif config.reward_model.strategy == "megatron":
                     from verl.workers.megatron_workers import RewardModelWorker
+                    reward_model_worker_cls = RewardModelWorker
                 else:
                     raise NotImplementedError
             elif use_legacy_worker_impl == "disable":
                 from verl.workers.roles import RewardModelWorker
+                reward_model_worker_cls = RewardModelWorker
 
                 print("Using new worker implementation")
             else:
                 raise ValueError(
                     f"Invalid use_legacy_worker_impl: {use_legacy_worker_impl}"
                 )
+            
+            # ! Deprecate for now, let's use reward loop instead
+            # Override the reward model worker class with a custom one
+            # custom_reward_model_worker_cls_config = config.trainer.get(
+            #     "custom_reward_model_worker_cls", None
+            # )
+            # if custom_reward_model_worker_cls_config is not None:
+            #     reward_model_worker_cls = load_extern_type(
+            #         custom_reward_model_worker_cls_config.path,
+            #         custom_reward_model_worker_cls_config.name,
+            #     )
 
-            self.role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
+            assert reward_model_worker_cls is not None, "reward_model_worker_cls is not set"
+
+            self.role_worker_mapping[Role.RewardModel] = ray.remote(reward_model_worker_cls)
             if config.reward_model.enable_resource_pool:
                 self.mapping[Role.RewardModel] = "reward_pool"
             else:
@@ -350,6 +369,7 @@ class TaskRunner:
             is_train=True,
             max_samples=config.data.get("train_max_samples", -1),
         )
+
         val_dataset = create_rl_dataset(
             config.data.val_files,
             config.data,
