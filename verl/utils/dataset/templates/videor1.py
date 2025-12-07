@@ -1,5 +1,5 @@
 def get_system_prompt():
-    SYSTEM_PROMPT = """Please think about this question as if you were a human pondering deeply. Engage in an internal dialogue using expressions such as 'let me think', 'wait', 'Hmm', 'oh, I see', 'let's break it down', etc, or other natural language thought expressions. It's encouraged to include self-reflection or verification in the reasoning process. Provide your detailed reasoning between the <think> </think> tags, and then give your final answer between the <answer> </answer> tags. Note that your final answer should be a single letter, such as A, B, C, etc."""
+    SYSTEM_PROMPT = """Please think about this question as if you were a human pondering deeply. Engage in an internal dialogue using expressions such as 'let me think', 'wait', 'Hmm', 'oh, I see', 'let's break it down', etc, or other natural language thought expressions. It's encouraged to include self-reflection or verification in the reasoning process. Provide your detailed reasoning between the <think> </think> tags, and then give your final answer between the <answer> </answer> tags. Note that your final answer MUST be a SINGLE letter, such as A, B, C, etc., no extra characters or words."""
     return SYSTEM_PROMPT
 
 

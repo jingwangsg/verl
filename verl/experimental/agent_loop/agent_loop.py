@@ -46,6 +46,7 @@ from verl.utils.transferqueue_utils import tqbridge
 from verl.workers.rollout.replica import TokenOutput, get_rollout_replica_class
 from verl.utils.import_utils import load_extern_type
 from debug.snapshot import Snapshot
+from uuid import uuid4
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
@@ -377,12 +378,9 @@ class AgentLoopWorkerBase:
             logprobs=config.calculate_log_probs,
         )
 
-        from uuid import uuid4
-
         _snap_id = str(uuid4())[:8]
         _snp = lambda x: Snapshot(
             f"agent_loop_worker/generate_sequences/{_snap_id}/{x[0]}",
-            subsys="agent_loop",
         ).snapshot(x[1])
 
         # override sampling params for validation
@@ -449,6 +447,11 @@ class AgentLoopWorkerBase:
         agent_name: str,
         **kwargs,
     ) -> _InternalAgentLoopOutput:
+        _snap_id = str(uuid4())[:8]
+        _snp = lambda x: Snapshot(
+            f"agent_loop_worker/_run_agent_loop/{_snap_id}/{x[0]}",
+        ).snapshot(x[1])
+
         with rollout_trace_attr(
             step=trajectory["step"],
             sample_index=trajectory["sample_index"],
@@ -604,6 +607,9 @@ class AgentLoopWorkerBase:
                 self.reward_router_address is not None
                 and self.config.reward_model.enable_resource_pool
             ) or not self.config.reward_model.enable
+            _snp(("enable_async_reward", enable_async_reward))
+            _snp(("output", output))
+
             if output.reward_score is None and enable_async_reward:
                 batch = TensorDict(
                     {
@@ -630,6 +636,8 @@ class AgentLoopWorkerBase:
                 result = await self.reward_manager_worker.compute_score.remote(data)
                 output.reward_score = result["reward_score"]
                 output.extra_fields["reward_extra_info"] = result["reward_extra_info"]
+            
+            _snp(("output2", output))
 
             return _InternalAgentLoopOutput(
                 prompt_ids=prompt_output["input_ids"],

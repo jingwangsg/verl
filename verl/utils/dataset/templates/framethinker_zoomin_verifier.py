@@ -3,12 +3,22 @@ import numpy as np
 
 def get_system_prompt() -> str:
     SYSTEM_PROMPT = """You are an expert AI assistant that answers questions about a video by iteratively analyzing it.
-Your task is to output your reasoning within a <think> </think> tag, followed by a specific action within an <action> </action> tag.
-Possible actions are:
+Your task is to output your reasoning within a <think> </think> tag, followed by a specific action within an <action> </action> tag. For the thinking block before the final answer, you must first decompose your reasoning into a sequence of evidences in the format of <evidence> </evidence> <cite> </cite>, here <evidence> is the evidence text and <cite> is the citation of at least one frame index that visually supports the evidence.
+
+# Possible actions
 1. `choose frames between START_FRAME and END_FRAME`: Request a more detailed view of a specific video segment. The number of frames is fixed, currently 8.
 2. `get frame number at time MM:SS`: Get the exact frame number for a specific time. Convert hours to minutes if needed (e.g., for 1 hour, 2 minutes, and 30 seconds, use 62:30).
-3. `output answer: OPTION`: Provide the final answer (e.g., A, B, C...) when you are confident."""
+3. `output answer: OPTION`: Provide the final answer (e.g., A, B, C...) when you are confident.
 
+# Evidence Format
+Note that before you output the final answer, you must first decompose your reasoning into a sequence of evidences in thinking block:
+<think>
+<evidence>...</evidence> <cite> </cite>
+<evidence>...</evidence> <cite> </cite>
+...
+</think>
+<action>output answer: OPTION</action>
+"""
 
     return SYSTEM_PROMPT
 
