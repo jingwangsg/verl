@@ -14,7 +14,14 @@ from typing import Any, Dict, List
 
 from datasets import load_dataset
 from PIL import Image
-from torchcodec.decoders import VideoDecoder
+import numpy as np
+
+# Increase decord EOF retry budget to better tolerate slow tails
+os.environ.setdefault("DECORD_EOF_RETRY_MAX", "20480")
+from decord import VideoReader, cpu
+
+# Avoid EOF retry errors on some long/slow videos.
+os.environ.setdefault("DECORD_EOF_RETRY_MAX", "20480")
 
 
 def build_prompt(question: str) -> List[Dict]:
@@ -75,22 +82,35 @@ def process_single_sample(
             fps = 0
             total_frames = 1
         else:
-            vr = VideoDecoder(abs_media_path, num_ffmpeg_threads=0)
-            fps = vr.metadata.average_fps
-            total_frames = vr.metadata.num_frames
-            width = vr.metadata.width
-            height = vr.metadata.height
+            try:
+                vr = VideoReader(abs_media_path, ctx=cpu(0))
+                indices = np.linspace(0, len(vr) - 1, 8).astype(int).tolist()
+                example_frames = vr.get_batch(indices)
 
-            # Fallbacks for edge cases where metadata is partial
-            if not total_frames or total_frames <= 0:
                 total_frames = len(vr)
-            if not fps or fps <= 0:
-                # Avoid div-by-zero; estimate from duration if available
-                try:
-                    duration = vr.metadata.duration
-                    fps = total_frames / duration if duration and duration > 0 else 0
-                except Exception:
-                    fps = 0
+                fps = vr.get_avg_fps()
+
+                first_frame = vr[0].asnumpy()
+                height, width = first_frame.shape[:2]
+
+                # Fallbacks for edge cases where metadata is partial
+                if not total_frames or total_frames <= 0:
+                    total_frames = len(vr)
+                if not fps or fps <= 0:
+                    # Avoid div-by-zero; estimate from duration via timestamps if available
+                    try:
+                        if total_frames > 0:
+                            ts = vr.get_frame_timestamp(total_frames - 1)
+                            end_ts = ts[1] if len(ts) > 1 else None
+                            duration = float(end_ts) if end_ts is not None else None
+                        else:
+                            duration = None
+                        fps = total_frames / duration if duration and duration > 0 else 0
+                    except Exception:
+                        fps = 0
+            except Exception as e:
+                print(f"[decord] Failed to read video {abs_media_path}: {e}")
+                raise
 
         # Build prompt with actual frame indices
         question = example["question"]
@@ -133,10 +153,15 @@ def process_single_sample(
         if "explanation" in example.get("metadata", {}):
             extra_info["explanation"] = example["metadata"]["explanation"]
 
-        # Build metadata with unified question_id
+        # Build metadata with unified question_id.
+        # NOTE: downstream we concat Parquet shards across datasets. Allowing a
+        # nested dict here makes Arrow infer a struct with fields that vary per
+        # source (and even per row), which then explodes when concatenating.
+        # To keep schema stable, serialize metadata to a JSON string.
         metadata = dict(example.get("metadata", {}))
         short_name = dataset_short or data_source
         metadata["question_id"] = f"{short_name}_{idx}"
+        metadata_json = json.dumps(metadata, ensure_ascii=False)
 
         # Build RL format sample
         sample = {
@@ -147,7 +172,7 @@ def process_single_sample(
             "reward_model": {"ground_truth": ground_truth, "style": "rule"},
             "ground_truth": ground_truth,
             "question_type": example.get("question_type", "mcq"),
-            "metadata": metadata,
+            "metadata": metadata_json,
             "extra_info": extra_info,
         }
 
@@ -173,11 +198,10 @@ def get_empty_sample_schema():
         "data_source": "",
         "prompt": [],
         "ability": "",
-        "env_name": "",
         "reward_model": {},
         "ground_truth": "",
         "question_type": "",
-        "metadata": {},
+        "metadata": "",
         "extra_info": {},
     }
 

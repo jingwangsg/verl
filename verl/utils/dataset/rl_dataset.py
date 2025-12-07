@@ -33,7 +33,7 @@ import verl.utils.torch_functional as verl_F
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.dataset.templates import get_message_template
 from verl.utils.dataset.vision_utils import extract_frames, compute_target_size
-
+from debug.snapshot import Snapshot
 from PIL import Image
 
 logger = logging.getLogger(__name__)
@@ -95,6 +95,10 @@ class RLHFDataset(Dataset):
         processor: Optional[ProcessorMixin] = None,
         max_samples: int = -1,
     ):
+        _snp = lambda x: Snapshot(f"rl_dataset/init/{x[0]}").snapshot(x[1])
+        _snp(("tokenizer", tokenizer))
+        _snp(("processor", processor))
+
         if not isinstance(data_files, list | ListConfig):
             data_files = [data_files]
 

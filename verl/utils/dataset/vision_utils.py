@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from io import BytesIO
 from typing import Optional
 
@@ -21,9 +22,12 @@ from qwen_vl_utils import fetch_image, fetch_video
 
 # for dynamic video frame extraction
 import numpy as np
+
+# Increase decord EOF retry budget to better tolerate slow tails
+os.environ.setdefault("DECORD_EOF_RETRY_MAX", "20480")
+from decord import VideoReader, cpu
 from einops import rearrange
 from torchvision.transforms import Resize
-from torchcodec.decoders import VideoDecoder
 
 
 def compute_target_size(width: int, height: int, size: int) -> tuple[int, int]:
@@ -37,17 +41,29 @@ def compute_target_size(width: int, height: int, size: int) -> tuple[int, int]:
 
 
 def extract_frames(video_path: str, num_frames: int = 8, size: int = 360) -> list[dict]:
-    decoder = VideoDecoder(video_path, num_ffmpeg_threads=0)
-    total_frames = decoder.metadata.num_frames
+    try:
+        decoder = VideoReader(video_path, ctx=cpu(0))
+        total_frames = len(decoder)
+    except Exception as e:
+        print(f"[decord] Failed to open video {video_path}: {e}")
+        raise
 
     # Calculate frame indices (evenly spaced, excluding last frame)
-    frame_indices = np.linspace(0, total_frames - 1, num_frames, dtype=int).tolist()
+    # TorchCodec occasionally reports num_frames that is 1 greater than the last
+    # decodable index (seen on some Holmes videos). To be safe, avoid the very
+    # last frame.
+    max_idx = max(0, total_frames - 2) if total_frames and total_frames > 1 else 0
+    frame_indices = np.linspace(0, max_idx, num_frames, dtype=int).tolist()
 
     try:
-        frames = decoder.get_frames_at(frame_indices).data
+        frames_nd = decoder.get_batch(frame_indices)  # decord NDArray [T, H, W, C]
+        frames = torch.as_tensor(frames_nd.asnumpy())  # convert to torch tensor
     except Exception as e:
-        print(f"Error extracting frames from {video_path}: {e}")
-        raise e
+        print(f"[decord] Error extracting frames from {video_path}: {e}")
+        raise
+
+    # Move channel to first dim for resizing, then back to HWC for PIL
+    frames = rearrange(frames, "t h w c -> t c h w")
     frames = Resize(size)(frames)
     frames = rearrange(frames, "t c h w -> t h w c").cpu().numpy()
 

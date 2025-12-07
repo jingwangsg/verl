@@ -10,14 +10,14 @@ MMRV="${BENCHMARK_ROOT}/MMR-V/test.parquet"
 MVB="${BENCHMARK_ROOT}/MVBench/test.parquet"
 VRB="${BENCHMARK_ROOT}/VRBench/test.parquet"
 TEMP="${BENCHMARK_ROOT}/TempCompass/test.parquet"
-VIDEOMME="${BENCHMARK_ROOT}/Video-MME/test.parquet"
+VMME="${BENCHMARK_ROOT}/VideoMME/test.parquet"
 
 # MODEL PATH
 MODEL_PATH="Qwen/Qwen2.5-VL-7B-Instruct"
 
 PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     "data.train_files=[${LVR}]" \
-    "data.val_files=[${MMRV}]" \
+    "data.val_files=[${LVR},${MVB},${VMME}]" \
     data.train_batch_size=256 \
     data.max_prompt_length=8192 \
     data.max_response_length=8192 \
@@ -35,7 +35,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     custom_reward_function.path=verl/utils/reward_score/video_vanilla.py \
     custom_reward_function.name=compute_score \
     \
-    data.val_batch_size=32 \
+    data.val_batch_size=2048 \
     trainer.val_before_train=True \
     trainer.val_only=True \
     trainer.logger='["console"]' \
@@ -51,4 +51,5 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.7 \
     \
     trainer.n_gpus_per_node=8 \
-    trainer.nnodes=2
+    trainer.nnodes=8 \
+    $@

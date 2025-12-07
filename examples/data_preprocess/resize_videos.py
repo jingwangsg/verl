@@ -25,13 +25,15 @@ import shutil
 import subprocess
 import tempfile
 import time
+from collections import Counter
 from functools import partial
 from multiprocessing import Pool
 from pathlib import Path
 from typing import Iterable, Tuple
-from collections import Counter
 
-from torchcodec.decoders import VideoDecoder
+# Increase decord EOF retry budget to better tolerate slow tails
+os.environ.setdefault("DECORD_EOF_RETRY_MAX", "20480")
+from decord import VideoReader, cpu
 
 
 def parse_args():
@@ -70,9 +72,14 @@ def load_video_paths(json_path: Path) -> Iterable[str]:
 
 def needs_resize(path: Path, max_short: int) -> Tuple[bool, int, int]:
     """Return (need, width, height) for a video."""
-    vr = VideoDecoder(str(path), num_ffmpeg_threads=0)
-    w = int(vr.metadata.width)
-    h = int(vr.metadata.height)
+    try:
+        vr = VideoReader(str(path), ctx=cpu(0))
+        first_frame = vr[0].asnumpy()
+    except Exception as e:
+        print(f"[decord] Failed to read video {path}: {e}")
+        raise
+
+    h, w = first_frame.shape[:2]
     short = min(w, h)
     return short > max_short, w, h
 

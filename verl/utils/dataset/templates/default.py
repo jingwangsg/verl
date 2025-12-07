@@ -5,7 +5,6 @@ import numpy as np
 
 def get_system_prompt():
     SYSTEM_PROMPT = """You are an expert AI assistant that answers questions about a video by iteratively analyzing it. Provide your detailed reasoning between the <think> </think> tags, and then give your final answer (OPTION only) between the <answer> </answer> tags."""
-    # SYSTEM_PROMPT = """Please think about this question as if you were a human pondering deeply. Engage in an internal dialogue using expressions such as 'let me think', 'wait', 'Hmm', 'oh, I see', 'let's break it down', etc, or other natural language thought expressions. It's encouraged to include self-reflection or verification in the reasoning process. Provide your detailed reasoning between the <think> </think> tags, and then give your final answer between the <answer> </answer> tags."""
     return SYSTEM_PROMPT
 
 
@@ -13,8 +12,7 @@ def get_system_prompt():
 #     return f"<image>" * num_frames
 
 def get_image_placeholders(num_frames: int, total_frames: int) -> str:
-    frame_indices = np.linspace(0, total_frames - 1, num_frames, dtype=int).tolist()
-    return "\n".join([f"frame {idx}:<image>" for idx in frame_indices])
+    return f"<image>" * num_frames
 
 
 def apply_message_template(messages, **kwargs):
@@ -32,6 +30,6 @@ def apply_message_template(messages, **kwargs):
     question = messages[0]["content"]
     messages = [
         {"role": "system", "content": get_system_prompt()},
-        {"role": "user", "content": question + "\n" + image_placeholders},
+        {"role": "user", "content": image_placeholders + "\n" + question},
     ]
     return messages

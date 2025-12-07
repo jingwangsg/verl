@@ -337,9 +337,13 @@ class AgentLoopWorkerBase:
         )
 
         # Built-in router: route all samples to tool_agent.
-        custom_agent_router_config = self.config.actor_rollout_ref.rollout.get("custom_agent_router", None)
+        custom_agent_router_config = self.config.actor_rollout_ref.rollout.get(
+            "custom_agent_router", None
+        )
         if custom_agent_router_config is not None:
-            self.custom_agent_router = load_extern_type(custom_agent_router_config.path, custom_agent_router_config.name)
+            self.custom_agent_router = load_extern_type(
+                custom_agent_router_config.path, custom_agent_router_config.name
+            )
         else:
             self.custom_agent_router = None
 
@@ -373,6 +377,14 @@ class AgentLoopWorkerBase:
             logprobs=config.calculate_log_probs,
         )
 
+        from uuid import uuid4
+
+        _snap_id = str(uuid4())[:8]
+        _snp = lambda x: Snapshot(
+            f"agent_loop_worker/generate_sequences/{_snap_id}/{x[0]}",
+            subsys="agent_loop",
+        ).snapshot(x[1])
+
         # override sampling params for validation
         if batch.meta_info.get("validate", False):
             sampling_params["top_p"] = config.val_kwargs.top_p
@@ -395,6 +407,8 @@ class AgentLoopWorkerBase:
         else:
             agent_loop_names = [default_agent_loop] * len(batch)
 
+        _snp(("agent_loop_names", agent_loop_names))
+
         batch.non_tensor_batch["agent_name"] = np.array(agent_loop_names, dtype=object)
 
         if "index" in batch.non_tensor_batch:
@@ -407,6 +421,9 @@ class AgentLoopWorkerBase:
             index.tolist(),
             batch.meta_info.get("validate", False),
         )
+        _snp(("trajectory_info", trajectory_info))
+        _snp(("sampling_params", sampling_params))
+        _snp(("batch", batch))
 
         tasks = []
         for i in range(len(batch)):
@@ -417,8 +434,11 @@ class AgentLoopWorkerBase:
                 )
             )
         outputs = await asyncio.gather(*tasks)
+        _snp(("outputs", outputs))
 
         output = self._postprocess(outputs)
+        _snp(("outputs2", output))
+
         return output
 
     async def _run_agent_loop(
@@ -920,12 +940,9 @@ class AgentLoopManager:
             DataProto: Output batch.
         """
 
-        if self.config.actor_rollout_ref.rollout.free_cache_engine:
-            self.wake_up()
-        if (
-            self.reward_model_manager
-            and self.config.reward_model.rollout.free_cache_engine
-        ):
+        # Always wake up to ensure weights sync; downstream will skip cache ops if disabled.
+        self.wake_up()
+        if self.reward_model_manager:
             self.reward_model_manager.wake_up()
 
         chunkes = prompts.chunk(len(self.agent_loop_workers))
@@ -936,12 +953,8 @@ class AgentLoopManager:
             ]
         )
         output = DataProto.concat(outputs)
-        if self.config.actor_rollout_ref.rollout.free_cache_engine:
-            self.sleep()
-        if (
-            self.reward_model_manager
-            and self.config.reward_model.rollout.free_cache_engine
-        ):
+        self.sleep()
+        if self.reward_model_manager:
             self.reward_model_manager.sleep()
 
         # calculate performance metrics

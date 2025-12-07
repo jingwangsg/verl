@@ -111,7 +111,9 @@ class PrometheusConfig(BaseConfig):
 
 @dataclass
 class RolloutConfig(BaseConfig):
-    _mutable_fields = {"max_model_len", "load_format"}
+    # Allow runtime toggles for kv-cache offloading (free_cache_engine) as well as
+    # dynamically updated limits for model length / load format.
+    _mutable_fields = {"max_model_len", "load_format", "free_cache_engine"}
 
     name: Optional[str] = MISSING
     mode: str = "sync"

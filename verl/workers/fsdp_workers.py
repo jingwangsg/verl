@@ -753,20 +753,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         get_torch_device().set_rng_state(self.torch_random_states)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def set_free_cache_engine(self, flag: bool):
-        """Toggle free_cache_engine at runtime (e.g., disable during validation)."""
-
-        # update local config
-        with open_dict(self.config.rollout):
-            self.config.rollout.free_cache_engine = bool(flag)
-
-        # rollout instance keeps its own config reference; keep them in sync
-        if hasattr(self, "rollout"):
-            self.rollout.config.free_cache_engine = bool(flag)
-
-        return self.config.rollout.free_cache_engine
-
-    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
         from verl.workers.actor import DataParallelPPOActor
 

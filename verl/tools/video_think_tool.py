@@ -25,7 +25,10 @@ from uuid import uuid4
 import numpy as np
 import torch
 from PIL import Image
-from torchcodec.decoders import VideoDecoder
+
+# Increase decord EOF retry budget to better tolerate slow tails
+os.environ.setdefault("DECORD_EOF_RETRY_MAX", "20480")
+from decord import VideoReader, cpu
 from torchvision.transforms.functional import resize as tv_resize
 
 from .base_tool import BaseTool
@@ -518,9 +521,7 @@ class VideoThinkTool(BaseTool):
                 loop = asyncio.get_running_loop()
                 decoder = await loop.run_in_executor(
                     None,
-                    partial(
-                        VideoDecoder, instance_data["video_path"], num_ffmpeg_threads=0
-                    ),
+                    partial(VideoReader, instance_data["video_path"], ctx=cpu(0)),
                 )
                 instance_data["vr_highres"] = decoder
                 logger.info(
@@ -534,13 +535,17 @@ class VideoThinkTool(BaseTool):
                 ):
                     wait_time = (base_delay * (2**attempt)) + random.uniform(0, 1)
                     logger.warning(
-                        f"[Attempt {attempt + 1}/{max_retries}] Failed to open video for high-res. "
-                        f"Retrying in {wait_time:.2f} seconds..."
+                        f"[Attempt {attempt + 1}/{max_retries}] Failed to open video for high-res "
+                        f"{instance_data['video_path']}. Retrying in {wait_time:.2f} seconds..."
                     )
                     await asyncio.sleep(wait_time)
                 else:
                     logger.error(
-                        f"[Attempt {attempt + 1}/{max_retries}] Failed to open video for high-res: {e}"
+                        f"[Attempt {attempt + 1}/{max_retries}] Failed to open video for high-res "
+                        f"{instance_data['video_path']}: {e}"
+                    )
+                    print(
+                        f"[decord] Failed to read video (high-res) {instance_data['video_path']}: {e}"
                     )
                     raise
 
@@ -558,9 +563,7 @@ class VideoThinkTool(BaseTool):
                 loop = asyncio.get_running_loop()
                 decoder = await loop.run_in_executor(
                     None,
-                    partial(
-                        VideoDecoder, instance_data["video_path"], num_ffmpeg_threads=0
-                    ),
+                    partial(VideoReader, instance_data["video_path"], ctx=cpu(0)),
                 )
                 instance_data["vr"] = decoder
                 logger.info(
@@ -574,13 +577,17 @@ class VideoThinkTool(BaseTool):
                 ):
                     wait_time = (base_delay * (2**attempt)) + random.uniform(0, 1)
                     logger.warning(
-                        f"[Attempt {attempt + 1}/{max_retries}] Failed to open video for low-res. "
-                        f"Retrying in {wait_time:.2f} seconds..."
+                        f"[Attempt {attempt + 1}/{max_retries}] Failed to open video for low-res "
+                        f"{instance_data['video_path']}. Retrying in {wait_time:.2f} seconds..."
                     )
                     await asyncio.sleep(wait_time)
                 else:
                     logger.error(
-                        f"[Attempt {attempt + 1}/{max_retries}] Failed to open video for low-res: {e}"
+                        f"[Attempt {attempt + 1}/{max_retries}] Failed to open video for low-res "
+                        f"{instance_data['video_path']}: {e}"
+                    )
+                    print(
+                        f"[decord] Failed to read video (low-res) {instance_data['video_path']}: {e}"
                     )
                     raise
 
@@ -604,7 +611,17 @@ class VideoThinkTool(BaseTool):
         target_h, target_w = compute_target_size(width, height, size=360)
 
         # Extract frame
-        frame_tensor = vr_highres[frame_idx]  # [C, H, W]
+        try:
+            frame_nd = vr_highres[frame_idx]  # decord NDArray [H, W, C]
+        except Exception as e:
+            logger.error(
+                f"Failed to read high-res frame {frame_idx} from {instance_data['video_path']}: {e}"
+            )
+            print(
+                f"[decord] Failed to read high-res frame {frame_idx} from {instance_data['video_path']}: {e}"
+            )
+            raise
+        frame_tensor = torch.from_numpy(frame_nd.asnumpy()).permute(2, 0, 1)
 
         # Resize to target size
         frame_tensor_resized = tv_resize(frame_tensor, [target_h, target_w])
@@ -654,9 +671,20 @@ class VideoThinkTool(BaseTool):
         if len(frame_indices) == 0:
             return "", []
 
-        # Get frames using torchcodec
-        frame_batch = vr.get_frames_at(frame_indices)
-        focused_frames_tensor = frame_batch.data  # [N, C, H, W]
+        # Get frames using decord and convert to torch [N, C, H, W]
+        try:
+            focused_frames_nd = vr.get_batch(frame_indices)  # decord NDArray [N, H, W, C]
+        except Exception as e:
+            logger.error(
+                f"Failed to read frames {frame_indices} from {instance_data['video_path']}: {e}"
+            )
+            print(
+                f"[decord] Failed to read frames {frame_indices} from {instance_data['video_path']}: {e}"
+            )
+            raise
+        focused_frames_tensor = torch.from_numpy(focused_frames_nd.asnumpy()).permute(
+            0, 3, 1, 2
+        )
 
         # Resize all frames to target size
         frames_resized = torch.stack(
