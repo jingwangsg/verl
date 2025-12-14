@@ -246,6 +246,70 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
     return metrics
 
 
+def compute_reward_extra_metrics(reward_extra_infos_dict: dict[str, Any]) -> dict[str, float]:
+    """
+    Aggregate scalar reward extra infos into logging-friendly metrics.
+
+    Only numeric or boolean entries are aggregated; strings or nested structures are ignored to
+    avoid noisy logging. Duplicated score/reward keys are skipped.
+    """
+    metrics: dict[str, float] = {}
+    if not reward_extra_infos_dict:
+        return metrics
+
+    skip_keys = {"score", "reward", "rewards"}
+    numeric_kinds = {"i", "u", "f"}
+
+    for key, values in reward_extra_infos_dict.items():
+        if key in skip_keys:
+            continue
+        try:
+            if isinstance(values, torch.Tensor):
+                arr = values.detach().cpu().numpy()
+            else:
+                arr = np.asarray(values)
+
+            if arr.size == 0:
+                continue
+
+            if arr.ndim == 0:
+                arr = arr.reshape(1)
+
+            # If dtype is object, verify elements are simple scalars; otherwise skip.
+            if arr.dtype == object:
+                flat = np.ravel(arr)
+                scalars: list[float | bool] = []
+                for elem in flat:
+                    if isinstance(elem, (bool, np.bool_, int, float, np.integer, np.floating)):
+                        scalars.append(bool(elem) if isinstance(elem, (bool, np.bool_)) else float(elem))
+                    else:
+                        raise TypeError("non-scalar reward extra info")
+                arr = np.asarray(scalars)
+            else:
+                arr = np.ravel(arr)
+
+            if arr.size == 0:
+                continue
+
+            if arr.dtype.kind == "b":
+                metrics[f"critic/reward_extra/{key}/hit_rate"] = float(np.mean(arr))
+            elif arr.dtype.kind in numeric_kinds:
+                arr = arr.astype(np.float64)
+                arr = arr[np.isfinite(arr)]
+                if arr.size == 0:
+                    continue
+                metrics[f"critic/reward_extra/{key}/mean"] = float(arr.mean())
+                metrics[f"critic/reward_extra/{key}/max"] = float(arr.max())
+                metrics[f"critic/reward_extra/{key}/min"] = float(arr.min())
+            else:
+                continue
+        except Exception:
+            # Intentionally swallow errors to keep training running even with malformed extra info.
+            continue
+
+    return metrics
+
+
 def compute_timing_metrics(batch: DataProto, timing_raw: dict[str, float]) -> dict[str, Any]:
     """
     Computes timing metrics for different processing stages in PPO training.

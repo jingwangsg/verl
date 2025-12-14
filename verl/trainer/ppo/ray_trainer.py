@@ -49,6 +49,7 @@ from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import AdvantageEstimator, agg_loss
 from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
+    compute_reward_extra_metrics,
     compute_throughout_metrics,
     compute_timing_metrics,
     process_validation_metrics,
@@ -1547,6 +1548,11 @@ class RayPPOTrainer:
                 # collect metrics
                 metrics.update(
                     compute_data_metrics(batch=batch, use_critic=self.use_critic)
+                )
+                metrics.update(
+                    compute_reward_extra_metrics(
+                        reward_extra_infos_dict=reward_extra_infos_dict
+                    )
                 )
                 metrics.update(
                     compute_timing_metrics(batch=batch, timing_raw=timing_raw)
