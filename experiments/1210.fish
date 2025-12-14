@@ -22,7 +22,7 @@ set VR1_VIDEO_20K $TRAIN_ROOT/Video-R1/train_video_mcq_20k.parquet
 # set LVR_20K $BENCHMARK_ROOT/LongVideoReason/train_mcq_20k.parquet
 
 EXP=grpo_baseline_vh+lvr10k+vr1_20k_n8 \
-ray_job_submit --no-wait --skip-exists --runtime-env ../runtime_env.yaml \
+ray_job_submit --no-wait --skip-exists --runtime-env ../runtime_env/train.yaml \
     --submission-id $EXP -- bash -c \
     """EXP=$EXP \
     TRAIN_FILES=\"$VH_TRAIN,$LVR_10K,$VR1_VIDEO_20K\" \
@@ -32,7 +32,7 @@ ray_job_submit --no-wait --skip-exists --runtime-env ../runtime_env.yaml \
     """
 
 EXP=grpo_baseline_vh+lvrfull+vr1_20k_n16 \
-ray_job_submit --no-wait --skip-exists --runtime-env ../runtime_env.yaml \
+ray_job_submit --no-wait --skip-exists --runtime-env ../runtime_env/train.yaml \
     --submission-id $EXP -- bash -c \
     """EXP=$EXP \
     TRAIN_FILES=\"$VH_TRAIN,$LVR_FULL,$VR1_VIDEO_20K\" \
@@ -43,7 +43,7 @@ ray_job_submit --no-wait --skip-exists --runtime-env ../runtime_env.yaml \
     """
 
 EXP=grpo_baseline_vh+lvrfull+vr1_20k_n32 \
-ray_job_submit --no-wait --skip-exists --runtime-env ../runtime_env.yaml \
+ray_job_submit --no-wait --skip-exists --runtime-env ../runtime_env/train.yaml \
     --submission-id $EXP -- bash -c \
     """EXP=$EXP \
     TRAIN_FILES=\"$VH_TRAIN,$LVR_FULL,$VR1_VIDEO_20K\" \
@@ -57,7 +57,7 @@ ray_job_submit --no-wait --skip-exists --runtime-env ../runtime_env.yaml \
     """
 
 EXP=framethinker_vh+lvrfull+vr1_20k_n8 \
-ray_job_submit --no-wait --skip-exists --runtime-env ../runtime_env.yaml \
+ray_job_submit --no-wait --skip-exists --runtime-env ../runtime_env/train.yaml \
     --submission-id $EXP -- bash -c \
     """EXP=$EXP \
     TRAIN_FILES=\"$VH_TRAIN,$LVR_FULL,$VR1_VIDEO_20K\" \
@@ -69,14 +69,15 @@ ray_job_submit --no-wait --skip-exists --runtime-env ../runtime_env.yaml \
 
 
 EXP=framethinker_vh+lvrfull+vr1_20k_n16 \
-ray_job_submit --no-wait --skip-exists --runtime-env ../runtime_env.yaml \
+ray_job_submit --no-wait --skip-exists --runtime-env ../runtime_env/train.yaml \
     --submission-id $EXP -- bash -c \
     """EXP=$EXP \
     TRAIN_FILES=\"$VH_TRAIN,$LVR_FULL,$VR1_VIDEO_20K\" \
     VAL_FILES=\"$LVR,$LVB,$LVBEN,$MVB,$VRB,$TEMP,$VH,$MMRV,$VMME,$VMMMU_MCQ,$VMQA\" \
     bash examples/framethinker/train_frame_thinker.sh \
     data.media_reading_kwargs.num_frames=16 \
-    trainer.test_freq=100
+    trainer.test_freq=100 \
+    trainer.nnodes=8
     """
 
 # EXP=framethinker_vh+lvrfull+vr1_20k_n32 \
