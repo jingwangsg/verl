@@ -60,6 +60,7 @@ from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import AdvantageEstimator, agg_loss
 from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
+    compute_pixel_values_metrics_by_data_source,
     compute_throughout_metrics,
     compute_timing_metrics,
     process_validation_metrics,
@@ -700,6 +701,11 @@ class RayPPOTrainer:
     def _validate(self):
         data_source_lst = []
         reward_extra_infos_dict: dict[str, list] = defaultdict(list)
+        pixel_values_numel_lst = []
+        pixel_values_sum_lst = []
+        pixel_values_sumsq_lst = []
+        pixel_values_min_lst = []
+        pixel_values_max_lst = []
 
         # Lists to collect samples for the table
         sample_inputs = []
@@ -857,6 +863,39 @@ class RayPPOTrainer:
                 data = asyncio.run(self.val_data_system_client.async_get_data(data_source_meta))
                 data_source = data["data_source"]
 
+            # Collect pixel_values sufficient statistics for data_source-level aggregation
+            n = reward_tensor.shape[0]
+            pixel_fields = [
+                "pixel_values_numel",
+                "pixel_values_sum",
+                "pixel_values_sumsq",
+                "pixel_values_min",
+                "pixel_values_max",
+            ]
+            if all(field in test_batch_meta.field_names for field in pixel_fields):
+                pixel_meta = asyncio.run(
+                    self.val_data_system_client.async_get_meta(
+                        data_fields=pixel_fields,
+                        batch_size=self.val_batch_size
+                        * self.config.actor_rollout_ref.rollout.val_kwargs.n,
+                        global_step=self.global_steps - 1,
+                        get_n_samples=False,
+                        task_name="get_pixel_values_stats",
+                    )
+                )
+                pixel_data = asyncio.run(self.val_data_system_client.async_get_data(pixel_meta))
+                pixel_values_numel_lst.append(pixel_data["pixel_values_numel"])
+                pixel_values_sum_lst.append(pixel_data["pixel_values_sum"])
+                pixel_values_sumsq_lst.append(pixel_data["pixel_values_sumsq"])
+                pixel_values_min_lst.append(pixel_data["pixel_values_min"])
+                pixel_values_max_lst.append(pixel_data["pixel_values_max"])
+            else:
+                pixel_values_numel_lst.append(np.zeros(n, dtype=np.int64))
+                pixel_values_sum_lst.append(np.zeros(n, dtype=np.float64))
+                pixel_values_sumsq_lst.append(np.zeros(n, dtype=np.float64))
+                pixel_values_min_lst.append(np.zeros(n, dtype=np.float64))
+                pixel_values_max_lst.append(np.zeros(n, dtype=np.float64))
+
             data_source_lst.append(data_source)
 
         self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
@@ -901,6 +940,19 @@ class RayPPOTrainer:
             metric_dict["val-aux/num_turns/min"] = sample_turns.min()
             metric_dict["val-aux/num_turns/max"] = sample_turns.max()
             metric_dict["val-aux/num_turns/mean"] = sample_turns.mean()
+
+        if len(pixel_values_numel_lst) > 0:
+            metric_dict.update(
+                compute_pixel_values_metrics_by_data_source(
+                    data_sources,
+                    pixel_values_numel=np.concatenate(pixel_values_numel_lst, axis=0),
+                    pixel_values_sum=np.concatenate(pixel_values_sum_lst, axis=0),
+                    pixel_values_sumsq=np.concatenate(pixel_values_sumsq_lst, axis=0),
+                    pixel_values_min=np.concatenate(pixel_values_min_lst, axis=0),
+                    pixel_values_max=np.concatenate(pixel_values_max_lst, axis=0),
+                    prefix="tool/val/pixel_values",
+                )
+            )
 
         asyncio.run(self.val_data_system_client.async_clear(self.global_steps - 1))
         return metric_dict

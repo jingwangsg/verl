@@ -243,6 +243,131 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> dict[str,
                 safe_action = action.replace("/", "_")
                 metrics[f"tool_call/by_action/{safe_action}/mean"] = counts.mean()
 
+    # Multi-modal pixel_values statistics (aggregated across all pixels in the batch)
+    metrics.update(_compute_pixel_values_batch_metrics(batch))
+
+    return metrics
+
+
+def _compute_pixel_values_batch_metrics(batch: DataProto) -> dict[str, float]:
+    """Compute batch-level pixel_values stats from per-episode sufficient statistics."""
+
+    if not isinstance(getattr(batch, "non_tensor_batch", None), dict):
+        return {}
+
+    required_keys = {
+        "pixel_values_numel",
+        "pixel_values_sum",
+        "pixel_values_sumsq",
+        "pixel_values_min",
+        "pixel_values_max",
+    }
+    if not required_keys.issubset(batch.non_tensor_batch.keys()):
+        return {}
+
+    def _to_float64(arr: np.ndarray) -> np.ndarray:
+        # non_tensor_batch entries are object arrays; keep this robust to None.
+        out = np.empty(arr.shape[0], dtype=np.float64)
+        for i, v in enumerate(arr.tolist()):
+            out[i] = np.nan if v is None else float(v)
+        return out
+
+    def _to_int64(arr: np.ndarray) -> np.ndarray:
+        out = np.empty(arr.shape[0], dtype=np.int64)
+        for i, v in enumerate(arr.tolist()):
+            out[i] = 0 if v is None else int(v)
+        return out
+
+    numel = _to_int64(batch.non_tensor_batch["pixel_values_numel"])
+    valid = numel > 0
+    if not np.any(valid):
+        return {"tool/pixel_values/numel": 0}
+
+    sums = _to_float64(batch.non_tensor_batch["pixel_values_sum"])
+    sumsq = _to_float64(batch.non_tensor_batch["pixel_values_sumsq"])
+    mins = _to_float64(batch.non_tensor_batch["pixel_values_min"])
+    maxs = _to_float64(batch.non_tensor_batch["pixel_values_max"])
+
+    # Only keep rows with valid counts and finite accumulators.
+    finite = np.isfinite(sums) & np.isfinite(sumsq) & np.isfinite(mins) & np.isfinite(maxs)
+    valid = valid & finite
+    if not np.any(valid):
+        return {"tool/pixel_values/numel": int(numel[valid].sum())}
+
+    total_numel = int(numel[valid].sum())
+    total_sum = float(np.sum(sums[valid], dtype=np.float64))
+    total_sumsq = float(np.sum(sumsq[valid], dtype=np.float64))
+
+    mean = total_sum / total_numel
+    var = total_sumsq / total_numel - mean * mean
+    if var < 0:
+        var = 0.0
+    std = float(np.sqrt(var))
+
+    metrics: dict[str, float] = {
+        "tool/pixel_values/mean": float(mean),
+        "tool/pixel_values/std": std,
+        "tool/pixel_values/min": float(np.min(mins[valid])),
+        "tool/pixel_values/max": float(np.max(maxs[valid])),
+        "tool/pixel_values/numel": total_numel,
+    }
+
+    if "pixel_values_image_pixels" in batch.non_tensor_batch:
+        image_pixels = _to_int64(batch.non_tensor_batch["pixel_values_image_pixels"])
+        metrics["tool/pixel_values/image_pixels_total"] = int(image_pixels[valid].sum())
+
+    return metrics
+
+
+def compute_pixel_values_metrics_by_data_source(
+    data_sources: np.ndarray,
+    *,
+    pixel_values_numel: np.ndarray,
+    pixel_values_sum: np.ndarray,
+    pixel_values_sumsq: np.ndarray,
+    pixel_values_min: np.ndarray,
+    pixel_values_max: np.ndarray,
+    prefix: str = "tool/val/pixel_values",
+) -> dict[str, float]:
+    """Compute pixel_values stats grouped by data_source (aggregated across all pixels)."""
+
+    if data_sources.size == 0:
+        return {}
+
+    # Ensure dtypes are usable
+    ds = np.asarray(data_sources, dtype=object)
+    numel = np.asarray(pixel_values_numel, dtype=np.int64)
+    sums = np.asarray(pixel_values_sum, dtype=np.float64)
+    sumsq = np.asarray(pixel_values_sumsq, dtype=np.float64)
+    mins = np.asarray(pixel_values_min, dtype=np.float64)
+    maxs = np.asarray(pixel_values_max, dtype=np.float64)
+
+    valid = (numel > 0) & np.isfinite(sums) & np.isfinite(sumsq) & np.isfinite(mins) & np.isfinite(maxs)
+    if not np.any(valid):
+        return {}
+
+    metrics: dict[str, float] = {}
+    for data_source in sorted(set(ds[valid].tolist())):
+        mask = valid & (ds == data_source)
+        if not np.any(mask):
+            continue
+        total_numel = int(numel[mask].sum())
+        total_sum = float(np.sum(sums[mask], dtype=np.float64))
+        total_sumsq = float(np.sum(sumsq[mask], dtype=np.float64))
+
+        mean = total_sum / total_numel
+        var = total_sumsq / total_numel - mean * mean
+        if var < 0:
+            var = 0.0
+        std = float(np.sqrt(var))
+
+        base = f"{prefix}/{data_source}"
+        metrics[f"{base}/mean"] = float(mean)
+        metrics[f"{base}/std"] = std
+        metrics[f"{base}/min"] = float(np.min(mins[mask]))
+        metrics[f"{base}/max"] = float(np.max(maxs[mask]))
+        metrics[f"{base}/numel"] = total_numel
+
     return metrics
 
 

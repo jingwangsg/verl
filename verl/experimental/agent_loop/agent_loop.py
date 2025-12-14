@@ -577,6 +577,37 @@ class AgentLoopWorkerBase:
                 # because np.array() only keeps the keys for BatchFeature.
                 multi_modal_inputs = dict(multi_modal_inputs)
 
+                # Collect per-episode pixel_values sufficient statistics for cheap aggregation later
+                # (train batch-level / val data_source-level).
+                try:
+                    pixel_values = multi_modal_inputs.get("pixel_values", None)
+                    if isinstance(pixel_values, torch.Tensor) and pixel_values.numel() > 0:
+                        pv = pixel_values.detach()
+                        pv64 = pv.to(dtype=torch.float64)
+                        pv_flat = pv64.reshape(-1)
+
+                        output.extra_fields["pixel_values_numel"] = int(pv_flat.numel())
+                        output.extra_fields["pixel_values_sum"] = float(pv_flat.sum().item())
+                        output.extra_fields["pixel_values_sumsq"] = float(
+                            torch.dot(pv_flat, pv_flat).item()
+                        )
+                        output.extra_fields["pixel_values_min"] = float(pv.min().item())
+                        output.extra_fields["pixel_values_max"] = float(pv.max().item())
+
+                        # Preprocessed image pixel count (exclude channels), best-effort.
+                        if pv.dim() >= 3:
+                            c = int(pv.shape[-3])
+                            h = int(pv.shape[-2])
+                            w = int(pv.shape[-1])
+                            if c > 0 and h > 0 and w > 0:
+                                image_count = int(pv.numel() // (c * h * w))
+                                output.extra_fields["pixel_values_image_pixels"] = int(
+                                    image_count * h * w
+                                )
+                except Exception as e:
+                    # Never fail the rollout due to logging-only statistics.
+                    logger.debug(f"Failed to compute pixel_values stats: {e}")
+
                 image_grid_thw = multi_modal_inputs.get("image_grid_thw")
                 video_grid_thw = multi_modal_inputs.get("video_grid_thw")
                 second_per_grid_ts = multi_modal_inputs.get("second_per_grid_ts")

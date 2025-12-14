@@ -49,6 +49,7 @@ from verl.trainer.ppo import core_algos
 from verl.trainer.ppo.core_algos import AdvantageEstimator, agg_loss
 from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
+    compute_pixel_values_metrics_by_data_source,
     compute_reward_extra_metrics,
     compute_throughout_metrics,
     compute_timing_metrics,
@@ -644,6 +645,11 @@ class RayPPOTrainer:
         sample_scores = []
         sample_turns = []
         sample_uids = []
+        pixel_values_numel_lst = []
+        pixel_values_sum_lst = []
+        pixel_values_sumsq_lst = []
+        pixel_values_min_lst = []
+        pixel_values_max_lst = []
 
         for batch_idx, test_data in enumerate(self.val_dataloader):
             print(
@@ -738,6 +744,34 @@ class RayPPOTrainer:
                 test_batch.non_tensor_batch.get("data_source", ["unknown"] * reward_tensor.shape[0])
             )
 
+            # Collect pixel_values sufficient statistics for data_source-level aggregation
+            n = reward_tensor.shape[0]
+            pixel_values_numel_lst.append(
+                test_batch.non_tensor_batch.get(
+                    "pixel_values_numel", np.zeros(n, dtype=np.int64)
+                )
+            )
+            pixel_values_sum_lst.append(
+                test_batch.non_tensor_batch.get(
+                    "pixel_values_sum", np.zeros(n, dtype=np.float64)
+                )
+            )
+            pixel_values_sumsq_lst.append(
+                test_batch.non_tensor_batch.get(
+                    "pixel_values_sumsq", np.zeros(n, dtype=np.float64)
+                )
+            )
+            pixel_values_min_lst.append(
+                test_batch.non_tensor_batch.get(
+                    "pixel_values_min", np.zeros(n, dtype=np.float64)
+                )
+            )
+            pixel_values_max_lst.append(
+                test_batch.non_tensor_batch.get(
+                    "pixel_values_max", np.zeros(n, dtype=np.float64)
+                )
+            )
+
         # end for test_data
 
         self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
@@ -782,6 +816,19 @@ class RayPPOTrainer:
             metric_dict["val-aux/num_turns/min"] = sample_turns.min()
             metric_dict["val-aux/num_turns/max"] = sample_turns.max()
             metric_dict["val-aux/num_turns/mean"] = sample_turns.mean()
+
+        if len(pixel_values_numel_lst) > 0:
+            metric_dict.update(
+                compute_pixel_values_metrics_by_data_source(
+                    data_sources,
+                    pixel_values_numel=np.concatenate(pixel_values_numel_lst, axis=0),
+                    pixel_values_sum=np.concatenate(pixel_values_sum_lst, axis=0),
+                    pixel_values_sumsq=np.concatenate(pixel_values_sumsq_lst, axis=0),
+                    pixel_values_min=np.concatenate(pixel_values_min_lst, axis=0),
+                    pixel_values_max=np.concatenate(pixel_values_max_lst, axis=0),
+                    prefix="tool/val/pixel_values",
+                )
+            )
 
         return metric_dict
 
