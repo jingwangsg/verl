@@ -9,6 +9,7 @@ matching the official format from GitHub issue #4.
 import argparse
 import json
 import os
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -36,6 +37,45 @@ def build_prompt(question: str) -> List[Dict]:
         List of message dicts
     """
     return [{"role": "user", "content": question}]
+
+
+def sanitize_json_file(json_path: str) -> str:
+    """
+    Strip or clear metadata to avoid pyarrow schema errors like
+    `cannot mix list and non-list, non-null values`. Writes a sanitized copy
+    to /tmp and returns the path; falls back to the original on failure.
+    """
+    try:
+        with open(json_path, "r") as f:
+            data = json.load(f)
+    except Exception as e:
+        print(f"Failed to read JSON for sanitization: {e}")
+        return json_path
+
+    if not isinstance(data, list):
+        # Unexpected structure; skip sanitization.
+        return json_path
+
+    changed = False
+    for item in data:
+        if item.get("metadata"):
+            item["metadata"] = {}
+            changed = True
+        elif "metadata" not in item:
+            item["metadata"] = {}
+            changed = True
+
+    if not changed:
+        return json_path
+
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f"{Path(json_path).stem}_nometa_", suffix=".json", dir="/tmp"
+    )
+    with os.fdopen(fd, "w") as f:
+        json.dump(data, f)
+
+    print(f"Metadata stripped; using sanitized JSON at: {tmp_path}")
+    return tmp_path
 
 
 def process_single_sample(
@@ -266,7 +306,8 @@ def main():
 
     # Load dataset using datasets library
     print(f"Loading JSON from: {args.json_file}")
-    dataset = load_dataset("json", data_files=args.json_file, split="train")
+    sanitized_json = sanitize_json_file(args.json_file)
+    dataset = load_dataset("json", data_files=sanitized_json, split="train")
     print(f"Found {len(dataset)} samples")
 
     # Process dataset using map with multiprocessing

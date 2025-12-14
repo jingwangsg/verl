@@ -236,6 +236,11 @@ agent:
 
     # Class name of the custom async server class (e.g. AsyncvLLMServer)
     name: null
+  
+  custom_agent_router:
+    _target_: verl.workers.config.CustomAgentRouterConfig
+    path: null
+    name: compute_score
 
 # Specifies the tensor bucket size (in megabytes) for batch weight updates during rollout operations.
 # This parameter controls the maximum payload size for a single weight update request.

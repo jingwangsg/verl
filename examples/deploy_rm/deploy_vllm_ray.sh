@@ -5,5 +5,5 @@ RAY_ADDRESS="http://localhost:8300" ray job submit \
     --runtime-env ../runtime_env.yaml \
     -- python examples/deploy_rm/deploy_vllm_ray.py \
     --model_path "Qwen/Qwen3-VL-30B-A3B-Instruct" \
-    --tensor_parallel_size 8 \
+    --tensor_parallel_size 4 \
     --num_replicas 16

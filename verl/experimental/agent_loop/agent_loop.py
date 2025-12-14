@@ -338,10 +338,10 @@ class AgentLoopWorkerBase:
         )
 
         # Built-in router: route all samples to tool_agent.
-        custom_agent_router_config = self.config.actor_rollout_ref.rollout.get(
-            "custom_agent_router", None
+        custom_agent_router_config = (
+            self.config.actor_rollout_ref.rollout.agent.custom_agent_router
         )
-        if custom_agent_router_config is not None:
+        if custom_agent_router_config.path is not None:
             self.custom_agent_router = load_extern_type(
                 custom_agent_router_config.path, custom_agent_router_config.name
             )
@@ -391,7 +391,7 @@ class AgentLoopWorkerBase:
         # Choose agent loop per sample via optional custom router.
         default_agent_loop = "single_turn_agent"
 
-        if self.custom_agent_router:
+        if self.custom_agent_router is not None:
             agent_loop_names = []
             for sample in batch:
                 name = self.custom_agent_router(sample)
@@ -636,7 +636,7 @@ class AgentLoopWorkerBase:
                 result = await self.reward_manager_worker.compute_score.remote(data)
                 output.reward_score = result["reward_score"]
                 output.extra_fields["reward_extra_info"] = result["reward_extra_info"]
-            
+
             _snp(("output2", output))
 
             return _InternalAgentLoopOutput(

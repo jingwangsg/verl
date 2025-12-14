@@ -69,45 +69,27 @@ def compute_score(
     _snp(("solution_str", solution_str))
     _snp(("ground_truth", ground_truth))
 
-    def _parse_answer(text: str) -> Dict[str, str]:
+    def _extract_tokens(text: str) -> Dict[str, Any]:
         """
-        Extract raw answer text and a leading choice token (first alnum) from free-form content.
+        Extract answer-bearing tokens for MCQ judging.
 
-        - If <answer>...</answer> exists, parse inside; otherwise use the full text.
-        - Leading choice token is the first alphanumeric character (letter uppercased).
-        Returns {"raw": raw_text, "choice": leading_alnum_or_empty}.
+        Steps:
+          1) If <answer>...</answer> exists, only use the inner content; else use full text.
+          2) Split on non-alphanumeric chars; keep single-char uppercase letters as candidate choices.
+        Returns {"raw": raw_text_used, "choices": [letters], "has_tag": bool}.
         """
-        if not text:
-            return {"raw": "", "choice": ""}
-
-        # Highest priority: XML-style tags
-        tagged = re.findall(r"<answer>(.*?)</answer>", text, re.IGNORECASE | re.DOTALL)
+        raw_source = text or ""
+        tagged = re.findall(r"<answer>(.*?)</answer>", raw_source, re.IGNORECASE | re.DOTALL)
+        has_tag = bool(tagged)
         if tagged:
-            text = tagged[-1].strip()
+            raw = tagged[-1].strip()
+        else:
+            raw = raw_source.strip()
 
-        # Common textual patterns (capture first alphanumeric)
-        patterns = [
-            r"final answer\s*[:\-]\s*([A-Za-z0-9])",
-            r"answer\s*[:\-]\s*([A-Za-z0-9])",
-            r"^([A-Za-z0-9])[\).]",          # "B) ..." or "B. ..."
-            r"^\s*([A-Za-z0-9])\s*$",        # single-letter/number line
-            r"\boption\s*([A-Za-z0-9])\b",
-        ]
-        for pat in patterns:
-            m = re.search(pat, text, re.IGNORECASE | re.MULTILINE)
-            if m:
-                ch = m.group(1)
-                choice = ch.upper() if ch.isalpha() else ch
-                return {"raw": text.strip(), "choice": choice}
-
-        # Fallback: first alphanumeric character anywhere
-        m = re.search(r"[A-Za-z0-9]", text)
-        if m:
-            ch = m.group(0)
-            choice = ch.upper() if ch.isalpha() else ch
-            return {"raw": text.strip(), "choice": choice}
-
-        return {"raw": text.strip(), "choice": ""}
+        # Split on any non-alphanumeric
+        parts = re.split(r"[^A-Za-z0-9]+", raw)
+        choices = [p.upper() for p in parts if len(p) == 1 and p.isalpha()]
+        return {"raw": raw, "choices": choices, "has_tag": has_tag}
 
     # Initialize scores
     format_score = 0.0
@@ -136,14 +118,14 @@ def compute_score(
         }
 
     # Extract predicted and gold answers (robust to different formats)
-    model_parsed = _parse_answer(solution_str)
-    gold_parsed = _parse_answer(ground_truth)
+    pred = _extract_tokens(solution_str)
+    gold = _extract_tokens(ground_truth)
 
-    model_raw = model_parsed["raw"]
-    gold_raw = gold_parsed["raw"] or ground_truth.strip()
+    model_raw = pred["raw"]
+    gold_choices = gold["choices"] or [ground_truth.strip().upper()]
 
-    # Mark format as valid if we could read any non-empty answer text
-    if model_raw:
+    # Format: we parsed at least one single-letter choice
+    if pred["choices"]:
         format_score = 1.0
 
     def _norm(s: str) -> str:
@@ -153,14 +135,12 @@ def compute_score(
         s = re.sub(r"\\s+", " ", s)
         return s
 
-    # Compute accuracy: prefer leading choice token if both have one; otherwise compare normalized text
-    if model_raw and gold_raw:
-        if model_parsed["choice"] and gold_parsed["choice"]:
-            if model_parsed["choice"] == gold_parsed["choice"]:
+    # Compute accuracy: any predicted choice matching any gold choice
+    if format_score == 1.0:
+        for c in pred["choices"]:
+            if c in gold_choices:
                 acc_score = 1.0
-        else:
-            if _norm(model_raw) == _norm(gold_raw):
-                acc_score = 1.0
+                break
 
     total_score = acc_score  # no extra bonuses for vanilla MCQ scoring
 

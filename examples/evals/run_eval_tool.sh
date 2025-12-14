@@ -34,11 +34,11 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     data.media_reading_kwargs.sampling_mode=uniform \
     algorithm.adv_estimator=grpo \
     \
-    data.message_template=default \
+    data.message_template=framethinker_add_zoomin \
     custom_reward_function.path=verl/utils/reward_score/video_vanilla.py \
     custom_reward_function.name=compute_score \
     \
-    data.val_batch_size=256 \
+    data.val_batch_size=512 \
     trainer.val_before_train=True \
     trainer.val_only=True \
     trainer.logger='["console"]' \
@@ -53,14 +53,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.7 \
     actor_rollout_ref.rollout.free_cache_engine=False \
-    actor_rollout_ref.rollout.max_num_batched_tokens=8192 \
-    actor_rollout_ref.rollout.limit_images=128 \
-    +actor_rollout_ref.rollout.engine_kwargs.vllm.disable_mm_preprocessor_cache=True \
-    \
-    algorithm.rollout_correction.rollout_is=token \
-    algorithm.rollout_correction.rollout_is_threshold=2.0 \
-    algorithm.rollout_correction.rollout_is_batch_normalize=true \
     \
     trainer.n_gpus_per_node=8 \
-    trainer.nnodes=4 \
+    trainer.nnodes=8 \
     $@

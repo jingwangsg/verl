@@ -4,94 +4,45 @@ set -euo pipefail
 # Run from agent_rl/verl
 MEDIA_ROOT="/mnt/amlfs-02/shared/datasets/s3/video_reason"
 BENCH_DIR="$MEDIA_ROOT/BENCHMARK"
+export DECORD_EOF_RETRY_MAX=40960
 
-python examples/data_preprocess/convert_to_rl_parquet.py \
-  "$BENCH_DIR/MMVU/test.json" \
-  --media-dir "$MEDIA_ROOT/" \
-  -o "$BENCH_DIR/MMVU/test.parquet" \
-  --data-source "MMVU" \
-  --num-proc 64
+# Explicit list of dataset splits to convert (MCQ-only variant for VideoMMMU included)
+DATA_FILES=(
+  # "$BENCH_DIR/CG-AV-Counting/test.json"
+  # "$BENCH_DIR/LVBench/test.json"
+  # "$BENCH_DIR/LongVideoBench/test.json"
+  # "$BENCH_DIR/LongVideoReason/test.json"
+  # "$BENCH_DIR/MLVU/test.json"
+  # "$BENCH_DIR/MMR-V/test.json"
+  # "$BENCH_DIR/MMVU/test.json"
+  # "$BENCH_DIR/MVBench/test.json"
+  # "$BENCH_DIR/TempCompass/test.json"
+  # "$BENCH_DIR/VCRBench/test.json"
+  # "$BENCH_DIR/VRBench/test.json"
+  # "$BENCH_DIR/VSI-Bench/test.json"
+  # "$BENCH_DIR/Video-Holmes/test.json"
+  # "$BENCH_DIR/VideoMME/test.json"
+  "$BENCH_DIR/VideoMMMU/test.json"
+  "$BENCH_DIR/VideoMMMU/test_mcq.json"
+  "$BENCH_DIR/VideoMathQA/test.json"
+)
 
-python examples/data_preprocess/convert_to_rl_parquet.py \
-  "$BENCH_DIR/Video-MMMU/test.json" \
-  --media-dir "$MEDIA_ROOT/" \
-  -o "$BENCH_DIR/Video-MMMU/test.parquet" \
-  --data-source "Video-MMMU" \
-  --num-proc 64
+for json_file in "${DATA_FILES[@]}"; do
+  dataset_dir=$(basename "$(dirname "$json_file")")
+  file_base=$(basename "$json_file")
 
-python examples/data_preprocess/convert_to_rl_parquet.py \
-  "$BENCH_DIR/VSI-Bench/test.json" \
-  --media-dir "$MEDIA_ROOT/" \
-  -o "$BENCH_DIR/VSI-Bench/test.parquet" \
-  --data-source "VSI-Bench" \
-  --num-proc 64
+  data_source="$dataset_dir"
+  if [[ "$file_base" != "test.json" ]]; then
+    stem=${file_base%.*}
+    data_source="${dataset_dir}_${stem}"
+  fi
 
-python examples/data_preprocess/convert_to_rl_parquet.py \
-  "$BENCH_DIR/VRBench/test.json" \
-  --media-dir "$MEDIA_ROOT/" \
-  -o "$BENCH_DIR/VRBench/test.parquet" \
-  --data-source "VRBench" \
-  --num-proc 64
+  output="${json_file%.*}.parquet"
 
-python examples/data_preprocess/convert_to_rl_parquet.py \
-  "$BENCH_DIR/TempCompass/test.json" \
-  --media-dir "$MEDIA_ROOT/" \
-  -o "$BENCH_DIR/TempCompass/test.parquet" \
-  --data-source "TempCompass" \
-  --num-proc 64
-
-python examples/data_preprocess/convert_to_rl_parquet.py \
-  "$BENCH_DIR/CG-Bench/test.json" \
-  --media-dir "$MEDIA_ROOT/" \
-  -o "$BENCH_DIR/CG-Bench/test.parquet" \
-  --data-source "CG-Bench" \
-  --num-proc 64
-
-python examples/data_preprocess/convert_to_rl_parquet.py \
-  "$BENCH_DIR/Video-Holmes/test.json" \
-  --media-dir "$MEDIA_ROOT/" \
-  -o "$BENCH_DIR/Video-Holmes/test.parquet" \
-  --data-source "Video-Holmes" \
-  --num-proc 64
-
-python examples/data_preprocess/convert_to_rl_parquet.py \
-  "$BENCH_DIR/MMR-V/test.json" \
-  --media-dir "$MEDIA_ROOT/" \
-  -o "$BENCH_DIR/MMR-V/test.parquet" \
-  --data-source "MMR-V" \
-  --num-proc 64
-
-python examples/data_preprocess/convert_to_rl_parquet.py \
-  "$BENCH_DIR/MLVU/test.json" \
-  --media-dir "$MEDIA_ROOT/" \
-  -o "$BENCH_DIR/MLVU/test.parquet" \
-  --data-source "MLVU" \
-  --num-proc 64
-
-python examples/data_preprocess/convert_to_rl_parquet.py \
-  "$BENCH_DIR/LongVideoReason/test.json" \
-  --media-dir "$MEDIA_ROOT/" \
-  -o "$BENCH_DIR/LongVideoReason/test.parquet" \
-  --data-source "LongVideoReason" \
-  --num-proc 64
-
-python examples/data_preprocess/convert_to_rl_parquet.py \
-  "$BENCH_DIR/LongVideoBench/test.json" \
-  --media-dir "$MEDIA_ROOT/" \
-  -o "$BENCH_DIR/LongVideoBench/test.parquet" \
-  --data-source "LongVideoBench" \
-  --num-proc 64
-
-python examples/data_preprocess/convert_to_rl_parquet.py \
-  "$BENCH_DIR/MVBench/test.json" \
-  --media-dir "$MEDIA_ROOT/" \
-  -o "$BENCH_DIR/MVBench/test.parquet" \
-  --data-source "MVBench" \
-  --num-proc 64
-
-python examples/data_preprocess/convert_to_rl_parquet.py \
-  "$BENCH_DIR/VideoMME/test.json" \
-  --media-dir "$MEDIA_ROOT/" \
-  -o "$BENCH_DIR/VideoMME/test.parquet" \
-  --data-source "VideoMME" \
-  --num-proc 64
+  python examples/data_preprocess/convert_to_rl_parquet.py \
+    "$json_file" \
+    --media-dir "$MEDIA_ROOT/" \
+    -o "$output" \
+    --data-source "$data_source" \
+    --num-proc 64
+done

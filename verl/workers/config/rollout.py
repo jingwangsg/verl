@@ -24,6 +24,7 @@ __all__ = [
     "SamplingConfig",
     "MultiTurnConfig",
     "CustomAsyncServerConfig",
+    "CustomAgentRouterConfig",
     "AgentLoopConfig",
     "TraceConfig",
     "ServerConfig",
@@ -67,11 +68,22 @@ class CustomAsyncServerConfig(BaseConfig):
 
 
 @dataclass
+class CustomAgentRouterConfig(BaseConfig):
+    path: Optional[str] = None
+    name: Optional[str] = "compute_score"
+
+
+@dataclass
 class AgentLoopConfig(BaseConfig):
     num_workers: int = 8
     default_agent_loop: str = "single_turn_agent"
     agent_loop_config_path: Optional[str] = None
-    custom_async_server: CustomAsyncServerConfig = field(default_factory=CustomAsyncServerConfig)
+    custom_async_server: CustomAsyncServerConfig = field(
+        default_factory=CustomAsyncServerConfig
+    )
+    custom_agent_router: CustomAgentRouterConfig = field(
+        default_factory=CustomAgentRouterConfig
+    )
 
 
 @dataclass
@@ -204,9 +216,9 @@ class RolloutConfig(BaseConfig):
     def __post_init__(self):
         """Validate the rollout config"""
         if self.expert_parallel_size > 1:
-            assert self.expert_parallel_size == (self.tensor_model_parallel_size * self.data_parallel_size), (
-                "expert_parallel_size must be equal to tensor_model_parallel_size * data_parallel_size"
-            )
+            assert self.expert_parallel_size == (
+                self.tensor_model_parallel_size * self.data_parallel_size
+            ), "expert_parallel_size must be equal to tensor_model_parallel_size * data_parallel_size"
 
         if self.pipeline_model_parallel_size > 1:
             if self.name == "vllm" or self.name == "sglang":

@@ -8,14 +8,12 @@ set -x
 # Data and model paths
 PROJECT_NAME=${PROJECT_NAME:-video_holmes_rl}
 EXP=${EXP:-framethinker_debug}
-SAVE_CHECKPOINT_DIR=/mnt/amlfs-03/shared/ckpts/checkpoints/jingwang/video_reason/
-CKPT_FULL=/mnt/amlfs-02/shared/checkpoints/jingwang/video_reason/sft/qwen2_5vl_7b_full_framethinker_sft
-MODEL_PATH=${MODEL_PATH:-$CKPT_FULL}
+MODEL_PATH=${MODEL_PATH:-Qwen/Qwen2.5-VL-7B-Instruct}
+SAVE_CHECKPOINT_DIR=${SAVE_CHECKPOINT_DIR:-/mnt/amlfs-02/shared/datasets/checkpoints/jingwang/video_reason/}
 
-# Use migrated datasets with tools_kwargs
 if [ -z "$TRAIN_FILES" ]; then
     echo "TRAIN_FILES is not set"
-    exit 1  
+    exit 1
 fi
 if [ -z "$VAL_FILES" ]; then
     echo "VAL_FILES is not set"
@@ -63,6 +61,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
     actor_rollout_ref.actor.fsdp_config.dtype=float16 \
     actor_rollout_ref.actor.fsdp_config.model_dtype=fp32 \
+    actor_rollout_ref.actor.fsdp_config.fsdp_size=8 \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=4 \
     actor_rollout_ref.rollout.name=vllm \
@@ -78,20 +77,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.calculate_log_probs=True \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
-    actor_rollout_ref.rollout.multi_turn.enable=True \
-    actor_rollout_ref.rollout.multi_turn.tool_config_path=${TOOL_CONFIG_PATH} \
-    actor_rollout_ref.rollout.multi_turn.max_assistant_turns=5 \
-    actor_rollout_ref.rollout.multi_turn.max_user_turns=5 \
-    actor_rollout_ref.rollout.multi_turn.max_parallel_calls=1 \
-    actor_rollout_ref.rollout.multi_turn.format=think_with_video \
-    actor_rollout_ref.rollout.multi_turn.max_tool_response_length=2048 \
-    actor_rollout_ref.rollout.multi_turn.tool_response_truncate_side=middle \
-    actor_rollout_ref.rollout.multi_turn.tool_response_role=user \
-    \
-    algorithm.rollout_correction.rollout_is=token \
-    algorithm.rollout_correction.rollout_is_threshold=2.0 \
-    algorithm.rollout_correction.rollout_is_batch_normalize=true \
-    \
+    actor_rollout_ref.rollout.multi_turn.enable=False \
     trainer.critic_warmup=0 \
     trainer.logger='["console","wandb"]' \
     trainer.n_gpus_per_node=8 \
