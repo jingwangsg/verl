@@ -577,22 +577,13 @@ class AgentLoopWorkerBase:
                 # because np.array() only keeps the keys for BatchFeature.
                 multi_modal_inputs = dict(multi_modal_inputs)
 
-                # Collect per-episode pixel_values sufficient statistics for cheap aggregation later
+                # Collect per-episode pixel counts for cheap aggregation later
                 # (train batch-level / val data_source-level).
                 try:
                     pixel_values = multi_modal_inputs.get("pixel_values", None)
                     if isinstance(pixel_values, torch.Tensor) and pixel_values.numel() > 0:
                         pv = pixel_values.detach()
-                        pv64 = pv.to(dtype=torch.float64)
-                        pv_flat = pv64.reshape(-1)
-
-                        output.extra_fields["pixel_values_numel"] = int(pv_flat.numel())
-                        output.extra_fields["pixel_values_sum"] = float(pv_flat.sum().item())
-                        output.extra_fields["pixel_values_sumsq"] = float(
-                            torch.dot(pv_flat, pv_flat).item()
-                        )
-                        output.extra_fields["pixel_values_min"] = float(pv.min().item())
-                        output.extra_fields["pixel_values_max"] = float(pv.max().item())
+                        output.extra_fields["pixel_values_numel"] = int(pv.numel())
 
                         # Preprocessed image pixel count (exclude channels), best-effort.
                         if pv.dim() >= 3:

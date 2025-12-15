@@ -702,10 +702,7 @@ class RayPPOTrainer:
         data_source_lst = []
         reward_extra_infos_dict: dict[str, list] = defaultdict(list)
         pixel_values_numel_lst = []
-        pixel_values_sum_lst = []
-        pixel_values_sumsq_lst = []
-        pixel_values_min_lst = []
-        pixel_values_max_lst = []
+        pixel_values_image_pixels_lst = []
 
         # Lists to collect samples for the table
         sample_inputs = []
@@ -865,13 +862,7 @@ class RayPPOTrainer:
 
             # Collect pixel_values sufficient statistics for data_source-level aggregation
             n = reward_tensor.shape[0]
-            pixel_fields = [
-                "pixel_values_numel",
-                "pixel_values_sum",
-                "pixel_values_sumsq",
-                "pixel_values_min",
-                "pixel_values_max",
-            ]
+            pixel_fields = ["pixel_values_numel", "pixel_values_image_pixels"]
             if all(field in test_batch_meta.field_names for field in pixel_fields):
                 pixel_meta = asyncio.run(
                     self.val_data_system_client.async_get_meta(
@@ -885,16 +876,10 @@ class RayPPOTrainer:
                 )
                 pixel_data = asyncio.run(self.val_data_system_client.async_get_data(pixel_meta))
                 pixel_values_numel_lst.append(pixel_data["pixel_values_numel"])
-                pixel_values_sum_lst.append(pixel_data["pixel_values_sum"])
-                pixel_values_sumsq_lst.append(pixel_data["pixel_values_sumsq"])
-                pixel_values_min_lst.append(pixel_data["pixel_values_min"])
-                pixel_values_max_lst.append(pixel_data["pixel_values_max"])
+                pixel_values_image_pixels_lst.append(pixel_data.get("pixel_values_image_pixels", np.zeros(n, dtype=np.int64)))
             else:
                 pixel_values_numel_lst.append(np.zeros(n, dtype=np.int64))
-                pixel_values_sum_lst.append(np.zeros(n, dtype=np.float64))
-                pixel_values_sumsq_lst.append(np.zeros(n, dtype=np.float64))
-                pixel_values_min_lst.append(np.zeros(n, dtype=np.float64))
-                pixel_values_max_lst.append(np.zeros(n, dtype=np.float64))
+                pixel_values_image_pixels_lst.append(np.zeros(n, dtype=np.int64))
 
             data_source_lst.append(data_source)
 
@@ -946,10 +931,7 @@ class RayPPOTrainer:
                 compute_pixel_values_metrics_by_data_source(
                     data_sources,
                     pixel_values_numel=np.concatenate(pixel_values_numel_lst, axis=0),
-                    pixel_values_sum=np.concatenate(pixel_values_sum_lst, axis=0),
-                    pixel_values_sumsq=np.concatenate(pixel_values_sumsq_lst, axis=0),
-                    pixel_values_min=np.concatenate(pixel_values_min_lst, axis=0),
-                    pixel_values_max=np.concatenate(pixel_values_max_lst, axis=0),
+                    pixel_values_image_pixels=np.concatenate(pixel_values_image_pixels_lst, axis=0),
                     prefix="tool/val/pixel_values",
                 )
             )

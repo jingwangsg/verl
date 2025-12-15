@@ -493,10 +493,7 @@ class RaySPINTrainer:
         data_source_lst = []
         reward_extra_infos_dict: dict[str, list] = defaultdict(list)
         pixel_values_numel_lst = []
-        pixel_values_sum_lst = []
-        pixel_values_sumsq_lst = []
-        pixel_values_min_lst = []
-        pixel_values_max_lst = []
+        pixel_values_image_pixels_lst = []
 
         # Lists to collect samples for the table
         sample_inputs = []
@@ -577,17 +574,8 @@ class RaySPINTrainer:
             pixel_values_numel_lst.append(
                 test_batch.non_tensor_batch.get("pixel_values_numel", np.zeros(n, dtype=np.int64))
             )
-            pixel_values_sum_lst.append(
-                test_batch.non_tensor_batch.get("pixel_values_sum", np.zeros(n, dtype=np.float64))
-            )
-            pixel_values_sumsq_lst.append(
-                test_batch.non_tensor_batch.get("pixel_values_sumsq", np.zeros(n, dtype=np.float64))
-            )
-            pixel_values_min_lst.append(
-                test_batch.non_tensor_batch.get("pixel_values_min", np.zeros(n, dtype=np.float64))
-            )
-            pixel_values_max_lst.append(
-                test_batch.non_tensor_batch.get("pixel_values_max", np.zeros(n, dtype=np.float64))
+            pixel_values_image_pixels_lst.append(
+                test_batch.non_tensor_batch.get("pixel_values_image_pixels", np.zeros(n, dtype=np.int64))
             )
 
         self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
@@ -640,10 +628,7 @@ class RaySPINTrainer:
                 compute_pixel_values_metrics_by_data_source(
                     data_sources,
                     pixel_values_numel=np.concatenate(pixel_values_numel_lst, axis=0),
-                    pixel_values_sum=np.concatenate(pixel_values_sum_lst, axis=0),
-                    pixel_values_sumsq=np.concatenate(pixel_values_sumsq_lst, axis=0),
-                    pixel_values_min=np.concatenate(pixel_values_min_lst, axis=0),
-                    pixel_values_max=np.concatenate(pixel_values_max_lst, axis=0),
+                    pixel_values_image_pixels=np.concatenate(pixel_values_image_pixels_lst, axis=0),
                     prefix="tool/val/pixel_values",
                 )
             )
