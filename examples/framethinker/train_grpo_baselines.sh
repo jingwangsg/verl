@@ -9,7 +9,7 @@ set -x
 PROJECT_NAME=${PROJECT_NAME:-video_holmes_rl}
 EXP=${EXP:-framethinker_debug}
 MODEL_PATH=${MODEL_PATH:-Qwen/Qwen2.5-VL-7B-Instruct}
-SAVE_CHECKPOINT_DIR=${SAVE_CHECKPOINT_DIR:-/mnt/amlfs-02/shared/datasets/checkpoints/jingwang/video_reason/}
+SAVE_CHECKPOINT_DIR=${SAVE_CHECKPOINT_DIR:-/mnt/amlfs-03/shared/ckpts/checkpoints/jingwang/video_reason/}
 
 if [ -z "$TRAIN_FILES" ]; then
     echo "TRAIN_FILES is not set"
@@ -82,7 +82,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     trainer.logger='["console","wandb"]' \
     trainer.n_gpus_per_node=8 \
     trainer.nnodes=4 \
-    trainer.save_freq=10 \
+    trainer.save_freq=20 \
     trainer.val_before_train=False \
     trainer.test_freq=50 \
     trainer.project_name=${PROJECT_NAME} \

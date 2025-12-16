@@ -21,7 +21,7 @@ MODEL_PATH="Qwen/Qwen2.5-VL-7B-Instruct"
 
 PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     "data.train_files=[${LVR}]" \
-    "data.val_files=[${LVR},${LVB},${LVBEN},${MVB},${VRB},${TEMP},${VH},${MMRV},${VMME},${VMMMU_MCQ},${VMQA}]" \
+    "data.val_files=[${LVR},${LVB},${LVBEN},${MVB},${VRB},${TEMP},${VH},${MMRV},${VMME},${VMMMU_MCQ},${VMQA},${MLVU_MCQ}]" \
     data.train_batch_size=256 \
     data.max_prompt_length=8192 \
     data.max_response_length=8192 \
