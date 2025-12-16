@@ -68,6 +68,11 @@ class BaseCheckpointManager:
         self.rank = torch.distributed.get_rank()
         self.world_size = torch.distributed.get_world_size()
 
+        # When True, checkpoint rotation (deleting old ckpts) is postponed until
+        # `finalize_rotation` is called explicitly. This is useful when we need
+        # to update tracker files before removing old checkpoints.
+        self.defer_rotation: bool = False
+
     @property
     def should_save_model(self) -> bool:
         """
@@ -140,6 +145,34 @@ class BaseCheckpointManager:
             if not os.path.exists(abs_path):
                 continue
             shutil.rmtree(abs_path, ignore_errors=True)
+
+    def _rotate_checkpoints(self, max_ckpt_to_keep: int | None):
+        """Remove oldest checkpoints so that only the latest `max_ckpt_to_keep` remain.
+
+        This is rank-0 only for deletion to avoid races, but all ranks keep
+        their in-memory `previous_saved_paths` trimmed for consistency.
+        """
+
+        if not (max_ckpt_to_keep and isinstance(max_ckpt_to_keep, int) and max_ckpt_to_keep > 0):
+            return
+
+        overflow = len(self.previous_saved_paths) - max_ckpt_to_keep
+        if overflow <= 0:
+            return
+
+        to_remove = self.previous_saved_paths[:overflow]
+
+        if self.rank == 0:
+            self.remove_previous_save_local_path(to_remove)
+
+        # Trim local record for all ranks
+        self.previous_saved_paths = self.previous_saved_paths[overflow:]
+
+    def finalize_rotation(self, max_ckpt_to_keep: int | None):
+        """Explicitly perform deferred rotation and reset the flag."""
+
+        self._rotate_checkpoints(max_ckpt_to_keep)
+        self.defer_rotation = False
 
     @staticmethod
     def get_rng_state():

@@ -58,5 +58,5 @@ class AsyncVLLMRayServer:
 app = AsyncVLLMRayServer.bind()
 
 if __name__ == "__main__":
-    ray.init(address="auto", log_to_driver=False)
+    ray.init(address="auto", log_to_driver=True)
     serve.run(app, name=args.name, route_prefix="/rm_vllm", blocking=True)

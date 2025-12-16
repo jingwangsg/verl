@@ -77,6 +77,10 @@ class CheckpointHandler:
         # Get max checkpoints to keep
         max_ckpt_to_keep = self.max_ckpt_to_keep
 
+        # Defer rotation so that tracker update happens before deletion.
+        if hasattr(self.engine, "checkpoint_manager"):
+            self.engine.checkpoint_manager.defer_rotation = True
+
         # Use checkpoint manager to save
         self.engine.save_checkpoint(
             local_path=local_global_step_folder, global_step=step, max_ckpt_to_keep=max_ckpt_to_keep
@@ -109,6 +113,10 @@ class CheckpointHandler:
             hdfs_io.copy(src=local_global_step_folder, dst=self.default_hdfs_dir, dirs_exist_ok=True)
 
         torch.distributed.barrier()
+
+        # After tracker update and barrier, rotate old checkpoints.
+        if hasattr(self.engine, "checkpoint_manager"):
+            self.engine.checkpoint_manager.finalize_rotation(max_ckpt_to_keep)
 
     def load_checkpoint(self):
         # Determine resume path based on configuration

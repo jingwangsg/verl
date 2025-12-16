@@ -14,6 +14,7 @@ TEMP="${BENCHMARK_ROOT}/TempCompass/test.parquet"
 VMME="${BENCHMARK_ROOT}/VideoMME/test.parquet"
 VMMMU_MCQ="${BENCHMARK_ROOT}/VideoMMMU/test_mcq.parquet"
 VMQA="${BENCHMARK_ROOT}/VideoMathQA/test.parquet"
+MLVU_MCQ="${BENCHMARK_ROOT}/MLVU/test_mcq.parquet"
 
 # MODEL PATH
 MODEL_PATH="Qwen/Qwen2.5-VL-7B-Instruct"
