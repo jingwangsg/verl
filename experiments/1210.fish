@@ -27,7 +27,7 @@ ray_job_submit --no-wait --skip-exists --runtime-env ../runtime_env/train.yaml \
     --submission-id $EXP -- bash -c \
     """EXP=$EXP \
     TRAIN_FILES=\"$VH_TRAIN,$LVR_10K,$VR1_VIDEO_20K\" \
-    VAL_FILES=\"$LVR,$LVB,$LVBEN,$MVB,$VRB,$TEMP,$VH,$MMRV,$VMME,$VMMMU_MCQ,$VMQA\" \
+    VAL_FILES=\"$LVR,$LVB,$LVBEN,$MVB,$VRB,$TEMP,$VH,$MMRV,$VMME,$VMMMU_MCQ,$VMQA,$MLVU_MCQ\" \
     bash examples/framethinker/train_grpo_baselines.sh \
     trainer.test_freq=100
     """
